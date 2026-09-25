@@ -1,0 +1,45 @@
+name: Kids walking paths
+
+# Пешеходные линии «Маленького каравана» строятся здесь, а не при каждой сборке APK:
+# результат коммитится в assets/kids/paths.json, и приложение работает с ним без интернета.
+on:
+  push:
+    branches: ["main", "claude/**"]
+    paths:
+      - "app/src/main/assets/kids/route.json"
+      - "core/src/main/assets/catalog.json"
+      - "app/tools/build_paths.py"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  actions: write
+
+concurrency:
+  group: kids-paths-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  paths:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build walking paths
+        run: python3 app/tools/build_paths.py
+
+      - name: Commit paths and rebuild APK
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          git add app/src/main/assets/kids/paths.json
+          if git diff --cached --quiet; then
+            echo "Линии не изменились."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "Update Malenkiy Karavan walking paths"
+          git push
+          # Пуш от GITHUB_TOKEN не запускает workflow, поэтому сборку APK с новыми линиями запускаем явно.
+          gh workflow run android.yml --ref "$GITHUB_REF_NAME"

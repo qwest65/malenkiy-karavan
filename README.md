@@ -1,0 +1,153 @@
+<div align="center">
+
+<img src="docs/images/icon.png" width="128" alt="Иконка приложения «Маленький караван»" />
+
+# Маленький караван
+
+**Прогулки по Троицку для детей 4–7 лет вместе с родителями**
+
+Верблюжонок Троша отстал от каравана и растерял по городу свои вещи. Помоги ему их найти!
+
+[![Android APK](https://github.com/qwest65/malenkiy-karavan/actions/workflows/android.yml/badge.svg?branch=main)](https://github.com/qwest65/malenkiy-karavan/actions/workflows/android.yml)
+[![Последний релиз](https://img.shields.io/github/v/release/qwest65/malenkiy-karavan?label=%D1%80%D0%B5%D0%BB%D0%B8%D0%B7&color=D2463C)](https://github.com/qwest65/malenkiy-karavan/releases/latest)
+![Android 8.0+](https://img.shields.io/badge/Android-8.0%2B-3DDC84?logo=android&logoColor=white)
+![Kotlin](https://img.shields.io/badge/Kotlin-2.1-7F52FF?logo=kotlin&logoColor=white)
+![MapLibre](https://img.shields.io/badge/MapLibre-OpenStreetMap-396CB2)
+
+### [⬇️ Скачать APK](https://github.com/qwest65/malenkiy-karavan/releases/latest/download/MalenkiyKaravan.apk)
+
+</div>
+
+---
+
+## О проекте
+
+<img src="docs/images/trosha.png" width="220" align="right" alt="Верблюжонок Троша" />
+
+Верблюд — символ Троицка: через город шли караваны из Бухары и Ташкента. Герой приложения, верблюжонок **Троша**, засмотрелся на голубей, отстал от каравана и растерял пять вещей. Ребёнок с родителем идут по городу и собирают их.
+
+На каждой точке звенит караванный колокольчик. Рассказчик коротко и понятно для малыша объясняет, что это за место. Троша находит свою вещь, она попадает в альбом наклеек, а потом звучит простое задание: сосчитать купола, поиграть в ярмарку, найти самое большое окно. За прогулку, пройденную до конца, ребёнок получает значок **«Юный караванщик»**.
+
+### Маршрут «Троша потерялся»
+
+| № | Точка | Вещь Троши |
+|---|---|---|
+| 1 | Памятный камень Троицкой крепости | 🗺 свиток с картой |
+| 2 | Свято-Троицкий собор | 🔔 колокольчик |
+| 3 | Центральная площадь | 🍪 пряники |
+| 4 | Торговые ряды | 🧵 яркие ткани |
+| 5 | Пассаж братьев Яушевых | 🍵 восточный чай |
+
+Весь маршрут — около 1,5 км по пешеходным дорожкам, 45–60 минут в детском темпе.
+
+## Возможности
+
+- **Родитель выбирает точки.** Можно пройти все пять или, например, три. Точки всегда идут в порядке маршрута, сразу видна длина прогулки.
+- **Пауза, пропуск и досрочное завершение.** Прогулку можно продолжить позже с главного экрана. Найденные вещи остаются в альбоме и копятся от прогулки к прогулке.
+- **Карта с пешеходными линиями.** Маршрут идёт по тротуарам: пройденные участки серые, текущий — сплошной, следующие — пунктиром. Шаги до точки считаются в детских шагах вдоль линии.
+- **Путь «от меня до точки».** Если вы далеко от маршрута, приложение строит пешеходный путь от вашего места. Без интернета показывается прямая.
+- **Автоматическое прибытие.** Ближе 45 м к точке приложение само открывает рассказ. Если GPS подводит, есть кнопка «Мы на месте!».
+- **Озвучка без интернета.** Рассказчик и Троша говорят разными голосами. Кнопка 🔊/⏹ запускает и останавливает звук.
+- **Для взрослых.** На каждой точке есть подсказка «о чём поговорить» и подробная историческая справка голосом.
+- **Нижняя панель сворачивается** свайпом вниз, чтобы открыть карту.
+- **Безопасно для детей.** Без регистрации, рекламы и сбора данных. Экран не гаснет во время прогулки, а приложение напоминает «Держи взрослого за руку».
+
+## Установка на телефон
+
+1. Скачайте [**MalenkiyKaravan.apk**](https://github.com/qwest65/malenkiy-karavan/releases/latest/download/MalenkiyKaravan.apk) на телефон. Ссылка постоянная и всегда ведёт на последнюю версию.
+2. Откройте файл. Если Android спросит, разрешите установку приложений из этого источника.
+3. Перед прогулкой разрешите доступ к геолокации — так Троша узнает, что вы дошли до точки.
+
+> Требуется Android 8.0 (API 26) или новее. Новые версии ставятся поверх старых, альбом сохраняется.
+
+Свежие сборки из рабочих веток публикуются как пред-релиз [`preview`](https://github.com/qwest65/malenkiy-karavan/releases/tag/preview): они для тестирования и могут быть нестабильны.
+
+## Технологии
+
+| Область | Решение |
+|---|---|
+| Язык | Kotlin 2.1 |
+| UI | Jetpack Compose, Material 3 |
+| Карта | [MapLibre Native](https://maplibre.org/) (`android-sdk-opengl`), подложка [OpenFreeMap](https://openfreemap.org/), данные © OpenStreetMap |
+| Пешеходные маршруты | [OSRM](https://project-osrm.org/), профиль foot |
+| Озвучка | заранее записанные Ogg Vorbis, голоса [Piper](https://github.com/rhasspy/piper) «dmitri» и «denis» (CC0) |
+| Хранение | SQLite (каталог мест), SharedPreferences (прогресс и альбом) |
+| Сборка | Gradle 8.9 (wrapper), Android Gradle Plugin 8.7, JDK 17 |
+| CI/CD | GitHub Actions → GitHub Releases |
+
+Ключей и платных сервисов не нужно.
+
+## Архитектура
+
+```
+core/                            каталог мест, геолокация, логика прибытия
+├── assets/catalog.json          места Троицка с координатами и справками
+└── java/ru/cultureguide/
+    ├── data/CatalogDatabase.kt      SQLite и импорт каталога
+    ├── location/LocationTracker.kt  GPS и сетевой провайдер
+    ├── navigation/GuidanceEngine.kt прибытие на точку (чистый Kotlin, покрыт тестами)
+    └── audio/AudioGuide.kt          синтезатор речи для подробных справок
+
+app/
+├── src/main/assets/kids/
+│   ├── route.json               маршрут: тексты рассказчика и Троши, задания, подсказки
+│   ├── paths.json               пешеходные линии между точками
+│   ├── audio/*.ogg              озвучка
+│   └── stickers/*.webp          Троша, вещи и значок
+├── src/main/java/ru/cultureguide/kids/
+│   ├── KaravanActivity.kt       жизненный цикл, разрешения, карта
+│   ├── KaravanController.kt     экраны, прогулка, прибытие, озвучка
+│   ├── content/                 маршрут, прогресс (Journey), пешеходные линии (WalkPath)
+│   ├── map/                     карта MapLibre и путь «от меня до точки»
+│   └── ui/                      экраны Compose
+└── tools/
+    ├── generate_audio.py        озвучка из route.json
+    └── build_paths.py           пешеходные линии через OSRM
+```
+
+## Сборка из исходников
+
+**Что понадобится:** JDK 17 и Android SDK (API 35).
+
+```bash
+git clone https://github.com/qwest65/malenkiy-karavan.git
+cd malenkiy-karavan
+./gradlew testDebugUnitTest assembleDebug
+```
+
+Готовый APK: `app/build/outputs/apk/debug/app-debug.apk`. Установить на подключённое устройство: `./gradlew installDebug`.
+
+## Как поменять тексты и маршрут
+
+- **Тексты, задания и подсказки** — в [`app/src/main/assets/kids/route.json`](app/src/main/assets/kids/route.json). После правки заново озвучьте их:
+  ```bash
+  pip install sherpa-onnx soundfile numpy
+  python3 app/tools/generate_audio.py
+  ```
+- **Точки маршрута** ссылаются на места из [`core/src/main/assets/catalog.json`](core/src/main/assets/catalog.json) по `place_id`. После изменения точек или каталога workflow [`kids-paths.yml`](.github/workflows/kids-paths.yml) сам перестроит пешеходные линии, закоммитит их и пересоберёт APK. Вручную: `python3 app/tools/build_paths.py`.
+- **Картинки** — `app/src/main/assets/kids/stickers/*.webp`.
+
+## Релизы и CI/CD
+
+Workflow [`.github/workflows/android.yml`](.github/workflows/android.yml) запускается на каждый push:
+
+| Ветка | Что происходит |
+|---|---|
+| `main` | тесты и сборка, затем GitHub Release `v<версия>` с `MalenkiyKaravan.apk` и `SHA256SUMS.txt`, помеченный как Latest |
+| `claude/**` | тесты и сборка, затем пред-релиз `preview` (не становится Latest) |
+
+Постоянная ссылка на последнюю версию: https://github.com/qwest65/malenkiy-karavan/releases/latest/download/MalenkiyKaravan.apk
+
+Чтобы выпустить новую версию, поднимите `versionName` и `versionCode` в [`app/build.gradle.kts`](app/build.gradle.kts) и влейте изменения в `main`.
+
+## Дорожная карта
+
+- [ ] Живой голос рассказчика и Троши
+- [ ] Офлайн-карта Троицка внутри приложения
+- [ ] Предупреждения о переходе дороги на реальных перекрёстках
+- [ ] Новые маршруты и города
+- [ ] Проверить задания на месте (что видно на фасадах)
+
+## Родственный проект
+
+[«Культурный гид»](https://github.com/qwest65/culture-guide) — взрослый путеводитель по истории Троицка с тематическими маршрутами и аудиогидом. «Маленький караван» использует тот же каталог мест.

@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <style name="KaravanTheme" parent="@android:style/Theme.Material.Light.NoActionBar">
+        <item name="android:colorAccent">#D2463C</item>
+        <item name="android:colorPrimary">#D2463C</item>
+        <item name="android:windowBackground">@color/sand</item>
+        <item name="android:navigationBarColor">#F6EBD6</item>
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:windowLightStatusBar">true</item>
+    </style>
+    <color name="sand">#F6EBD6</color>
+</resources>
