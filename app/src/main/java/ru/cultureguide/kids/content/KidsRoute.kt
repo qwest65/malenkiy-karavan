@@ -70,6 +70,9 @@ object Clips {
     fun trosha(index: Int) = "stop${index + 1}_trosha"
     fun task(index: Int) = "stop${index + 1}_task"
 
+    /** Подробная справка для взрослых — описание места из каталога. */
+    fun parent(index: Int) = "stop${index + 1}_parent"
+
     /** Всё, что звучит при подходе к точке: звон, рассказ, находка Троши и вопрос. */
     fun arrival(index: Int) = listOf(BELL, ARRIVED, narrator(index), trosha(index), task(index))
 }

@@ -7,7 +7,6 @@ import android.os.SystemClock
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
-import ru.cultureguide.audio.AudioGuide
 import ru.cultureguide.kids.audio.ClipPlayer
 import ru.cultureguide.kids.content.Clips
 import ru.cultureguide.kids.content.Journey
@@ -48,7 +47,6 @@ class KaravanController(
     /** Пешеходные линии между точками; без них расстояние считается по прямой. */
     val paths: RoutePaths,
     val player: ClipPlayer,
-    private val audioGuide: AudioGuide,
     private val router: ApproachRouter,
     /** Фото на память с точек и коллаж из них. */
     val photos: PhotoStore
@@ -86,7 +84,7 @@ class KaravanController(
     private var lastRouteRequestAt = Long.MIN_VALUE / 2
     private var routeRequestInFlight = false
 
-    val parentStoryPlaying: Boolean get() = audioGuide.speakingPlaceId == places.getOrNull(openedStop)?.id
+    val parentStoryPlaying: Boolean get() = player.playing == Clips.parent(openedStop)
 
     /** Длина прогулки по выбранным точкам вдоль пешеходных линий; null — линий нет. */
     fun planMeters(plan: List<Int>): Double? = paths.planMeters(plan)
@@ -191,7 +189,6 @@ class KaravanController(
         openedStop = stop
         quizChoice = null
         screen = Screen.Stop
-        audioGuide.stop()
         player.play(Clips.arrival(stop))
     }
 
@@ -199,7 +196,6 @@ class KaravanController(
 
     /** Кнопка динамика на экране точки: остановить озвучку или послушать рассказ ещё раз. */
     fun toggleStopStory() {
-        audioGuide.stop()
         if (speaking) {
             player.stop()
         } else {
@@ -210,7 +206,6 @@ class KaravanController(
     /** Ребёнок выбрал вариант ответа: Троша хвалит или просит попробовать ещё раз. */
     fun answer(option: Int) {
         quizChoice = option
-        audioGuide.stop()
         if (route.stops[openedStop].question.isRight(option)) {
             player.play(Clips.RIGHT, Clips.PHOTO)
         } else {
@@ -291,10 +286,9 @@ class KaravanController(
         screen = Screen.Walk
     }
 
-    /** Подробная историческая справка из общего каталога — для взрослых, голосом синтезатора. */
+    /** Подробная историческая справка из каталога — для взрослых, голосом рассказчика. */
     fun toggleParentStory() {
-        player.stop()
-        places.getOrNull(openedStop)?.let(audioGuide::toggle)
+        if (parentStoryPlaying) player.stop() else player.play(Clips.parent(openedStop))
     }
 
     fun openAlbum() {
@@ -317,12 +311,10 @@ class KaravanController(
 
     fun stopAudio() {
         player.stop()
-        audioGuide.stop()
     }
 
     fun dispose() {
         player.stop()
-        audioGuide.shutdown()
         router.shutdown()
         photos.shutdown()
     }

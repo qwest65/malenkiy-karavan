@@ -16,7 +16,6 @@ import androidx.lifecycle.Lifecycle
 import org.json.JSONObject
 import org.maplibre.android.MapLibre
 import org.maplibre.android.maps.MapView
-import ru.cultureguide.audio.AudioGuide
 import ru.cultureguide.data.CatalogDatabase
 import ru.cultureguide.kids.audio.ClipPlayer
 import ru.cultureguide.kids.content.KidsPathsLoader
@@ -85,7 +84,7 @@ class KaravanActivity : ComponentActivity() {
         val paths = KidsPathsLoader.load(this, route)
 
         photos = PhotoStore(this)
-        controller = KaravanController(this, route, places, paths, ClipPlayer(this), AudioGuide(this), ApproachRouter(), photos)
+        controller = KaravanController(this, route, places, paths, ClipPlayer(this), ApproachRouter(), photos)
         karavanMap = KaravanMap(this, route.stops, places, paths)
         tracker = LocationTracker(this, controller::onLocation)
 
