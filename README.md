@@ -132,7 +132,7 @@ cd malenkiy-karavan
 
 ## Озвучка
 
-Голоса — нейросетевые голоса Microsoft Edge («Прочесть вслух»): Дмитрий, Светлана и Дария, через библиотеку [edge-tts](https://github.com/rany2/edge-tts). Бесплатно и без ключа. Это неофициальный доступ к сервису Microsoft: для бесплатного приложения подходит, для платного — рискованно. Скрипт — [`app/tools/generate_audio.py`](app/tools/generate_audio.py), запуск — workflow [`voice.yml`](.github/workflows/voice.yml): **Actions → Voice → Run workflow**.
+Голоса — нейросетевые голоса Microsoft Edge («Прочесть вслух»): Дмитрий и Светлана, через библиотеку [edge-tts](https://github.com/rany2/edge-tts). Бесплатно и без ключа. Это неофициальный доступ к сервису Microsoft: для бесплатного приложения подходит, для платного — рискованно. Скрипт — [`app/tools/generate_audio.py`](app/tools/generate_audio.py), запуск — workflow [`voice.yml`](.github/workflows/voice.yml): **Actions → Voice → Run workflow**.
 
 - Режим `samples` публикует образцы голосов в пред-релиз [`voice-samples`](https://github.com/qwest65/malenkiy-karavan/releases/tag/voice-samples) — их можно послушать в браузере.
 - Режим `all` переозвучивает всё приложение выбранными голосами (рассказчик, Троша, тон Троши), коммитит файлы в ветку, на которой запущен, и собирает APK.
