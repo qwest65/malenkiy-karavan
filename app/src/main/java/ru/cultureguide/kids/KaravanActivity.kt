@@ -21,6 +21,7 @@ import ru.cultureguide.kids.audio.ClipPlayer
 import ru.cultureguide.kids.content.KidsPathsLoader
 import ru.cultureguide.kids.content.KidsRouteLoader
 import ru.cultureguide.kids.map.ApproachRouter
+import ru.cultureguide.kids.map.HeadingSensor
 import ru.cultureguide.kids.map.KaravanMap
 import ru.cultureguide.kids.photo.PhotoStore
 import ru.cultureguide.kids.ui.KaravanApp
@@ -34,6 +35,7 @@ class KaravanActivity : ComponentActivity() {
     private lateinit var controller: KaravanController
     private lateinit var karavanMap: KaravanMap
     private lateinit var tracker: LocationTracker
+    private lateinit var compass: HeadingSensor
     private var mapView: MapView? = null
     private lateinit var photos: PhotoStore
     /** Точка, для которой сейчас снимают или выбирают фото. */
@@ -86,13 +88,20 @@ class KaravanActivity : ComponentActivity() {
         photos = PhotoStore(this)
         controller = KaravanController(this, route, places, paths, ClipPlayer(this), ApproachRouter(), photos)
         karavanMap = KaravanMap(this, route.stops, places, paths)
-        tracker = LocationTracker(this, controller::onLocation)
+        compass = HeadingSensor(this, controller::onCompass)
+        controller.onHeading = karavanMap::setHeading
+        tracker = LocationTracker(this) { location ->
+            compass.setLocation(location.latitude, location.longitude)
+            controller.onLocation(location)
+        }
 
         val hooks = MapHooks(
             onCreated = ::attachMap,
             onReleased = ::detachMap,
             onUpdate = karavanMap::update,
-            onFitAll = karavanMap::fitAll
+            onFitAll = karavanMap::showAll,
+            isFollowing = { karavanMap.following },
+            onFollow = karavanMap::follow
         )
         val photoHooks = PhotoHooks(takePhoto = ::takePhoto, pickPhoto = ::pickPhoto, shareCollage = ::shareCollage)
         setContent {
@@ -188,9 +197,11 @@ class KaravanActivity : ComponentActivity() {
     override fun onResume() {
         super.onResume()
         mapView?.onResume()
+        compass.start()
     }
 
     override fun onPause() {
+        compass.stop()
         mapView?.onPause()
         super.onPause()
     }

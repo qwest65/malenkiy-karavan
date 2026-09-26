@@ -33,6 +33,11 @@ class ClipPlayer(context: Context) {
 
     fun play(vararg clips: String) = play(clips.toList())
 
+    /** Добавить фрагмент в очередь, не прерывая то, что звучит сейчас. */
+    fun enqueue(clip: String) {
+        if (playing == null) play(clip) else queue.addLast(clip)
+    }
+
     fun stop() {
         main.removeCallbacks(next)
         queue.clear()

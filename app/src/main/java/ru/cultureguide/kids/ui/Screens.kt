@@ -68,6 +68,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalView
@@ -82,6 +83,9 @@ import ru.cultureguide.kids.Screen
 import ru.cultureguide.kids.WalkResult
 import ru.cultureguide.kids.content.Clips
 import ru.cultureguide.kids.content.Journey
+import ru.cultureguide.kids.content.Turn
+import ru.cultureguide.kids.content.angleDelta
+import ru.cultureguide.kids.content.bearingDegrees
 import ru.cultureguide.kids.content.kidSteps
 import ru.cultureguide.kids.content.stepsWord
 import ru.cultureguide.navigation.GeoPoint
@@ -93,7 +97,10 @@ class MapHooks(
     val onCreated: (MapView) -> Unit,
     val onReleased: (MapView) -> Unit,
     val onUpdate: (Journey, LocationFix?, List<GeoPoint>?) -> Unit,
-    val onFitAll: () -> Unit
+    val onFitAll: () -> Unit,
+    /** Следует ли карта за нами, как навигатор; читается как состояние Compose. */
+    val isFollowing: () -> Boolean,
+    val onFollow: () -> Unit
 )
 
 /**
@@ -387,12 +394,17 @@ private fun WalkScreen(c: KaravanController, map: MapHooks) {
             onRelease = map.onReleased,
             modifier = Modifier.fillMaxSize()
         )
-        Row(
+        Column(
             Modifier.fillMaxWidth().statusBarsPadding().padding(12.dp),
-            horizontalArrangement = Arrangement.SpaceBetween
+            verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
-            PillButton("⏸ Пауза", c::pause)
-            RoundButton("⤢", map.onFitAll)
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                PillButton("⏸ Пауза", c::pause)
+                Spacer(Modifier.weight(1f))
+                if (!map.isFollowing()) RoundButton("🧭", map.onFollow)
+                RoundButton("⤢", map.onFitAll)
+            }
+            NavigationBanner(c)
         }
         WalkPanel(
             expanded = panelExpanded,
@@ -438,6 +450,80 @@ private fun WalkScreen(c: KaravanController, map: MapHooks) {
         FinishDialog(onConfirm = { confirmFinish = false; c.finishWalk() }, onDismiss = { confirmFinish = false })
     }
 }
+
+/**
+ * Плашка навигатора над картой: куда повернуть и через сколько метров. Рядом с точкой
+ * (или когда пути по улицам нет) — стрелка прямо на точку с учётом того, куда смотрит телефон.
+ */
+@Composable
+private fun NavigationBanner(c: KaravanController) {
+    val here = c.location ?: return
+    val distance = c.distanceToTarget ?: return
+    val target = c.targetPoint ?: return
+    val instruction = c.instruction
+    val heading = c.heading
+    val pointer = heading != null && (c.nearTarget || instruction == null)
+    val arrow: String
+    val rotation: Float
+    val title: String
+    val subtitle: String?
+    if (pointer) {
+        val steps = kidSteps(distance)
+        arrow = "↑"
+        rotation = angleDelta(heading!!, bearingDegrees(GeoPoint(here.lat, here.lon), target)).toFloat()
+        title = if (c.nearTarget) "Точка рядом — иди по стрелке" else "Иди по стрелке к точке"
+        subtitle = "≈ $steps ${stepsWord(steps)} · ${formatDistance(distance)}"
+    } else if (instruction?.turn != null) {
+        val turn = instruction.turn
+        arrow = if (turn == Turn.U_TURN) "↩" else "↑"
+        rotation = when (turn) {
+            Turn.LEFT -> -90f
+            Turn.SLIGHT_LEFT -> -45f
+            Turn.RIGHT -> 90f
+            Turn.SLIGHT_RIGHT -> 45f
+            Turn.U_TURN -> 0f
+        }
+        val what = when (turn) {
+            Turn.LEFT -> "налево"
+            Turn.SLIGHT_LEFT -> "чуть левее"
+            Turn.RIGHT -> "направо"
+            Turn.SLIGHT_RIGHT -> "чуть правее"
+            Turn.U_TURN -> "разворот"
+        }
+        title = if (instruction.inMeters < NOW_METERS) "Сейчас $what" else "Через ${formatDistance(instruction.inMeters)} $what"
+        subtitle = "До точки ${formatDistance(distance)}"
+    } else if (instruction != null) {
+        arrow = "↑"
+        rotation = 0f
+        title = "Прямо ${formatDistance(instruction.inMeters)}"
+        subtitle = "и мы у точки"
+    } else {
+        return
+    }
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .background(Karavan.Red, RoundedCornerShape(20.dp))
+            .padding(horizontal = 16.dp, vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(14.dp)
+    ) {
+        Text(
+            arrow,
+            fontSize = 44.sp,
+            fontWeight = FontWeight.Black,
+            color = Color.White,
+            modifier = Modifier.rotate(rotation)
+        )
+        Column {
+            Text(title, fontSize = 22.sp, fontWeight = FontWeight.Black, color = Color.White)
+            subtitle?.let { Text(it, fontSize = 15.sp, color = Color.White.copy(alpha = 0.9f)) }
+        }
+    }
+}
+
+/** Ближе этого к повороту пишем «сейчас». */
+private const val NOW_METERS = 8.0
 
 /**
  * Нижняя панель прогулки. Свайп вниз (или нажатие на полоску) сворачивает её до одной строки

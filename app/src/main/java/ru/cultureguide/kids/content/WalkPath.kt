@@ -11,8 +11,11 @@ const val ON_PATH_METERS = 40.0
 
 private const val METERS_PER_DEGREE = 111_320.0
 
-/** Где мы относительно линии: насколько от неё отошли и сколько осталось пройти вдоль неё. */
-data class PathProgress(val offPathMeters: Double, val remainingMeters: Double)
+/**
+ * Где мы относительно линии: насколько от неё отошли, сколько осталось пройти вдоль неё
+ * и сколько уже пройдено от её начала.
+ */
+data class PathProgress(val offPathMeters: Double, val remainingMeters: Double, val alongMeters: Double = 0.0)
 
 /** Пешеходная линия от одной точки маршрута до следующей. */
 class WalkPath(val points: List<GeoPoint>) {
@@ -23,6 +26,9 @@ class WalkPath(val points: List<GeoPoint>) {
     private val segmentMeters = List(points.size - 1) { i -> dist(points[i], points[i + 1]) }
 
     val lengthMeters: Double = segmentMeters.sum()
+
+    /** Повороты вдоль линии — для подсказок «через 30 м налево». */
+    val maneuvers: List<Maneuver> by lazy { findManeuvers(points) }
 
     fun progress(fix: LocationFix): PathProgress {
         var bestOff = Double.MAX_VALUE
@@ -46,7 +52,7 @@ class WalkPath(val points: List<GeoPoint>) {
                 bestRemaining = (1 - t) * segmentMeters[i] + after
             }
         }
-        return PathProgress(bestOff, bestRemaining)
+        return PathProgress(bestOff, bestRemaining, lengthMeters - bestRemaining)
     }
 
     private fun dist(a: GeoPoint, b: GeoPoint) = distanceMeters(a.lat, a.lon, b.lat, b.lon)

@@ -65,6 +65,17 @@ object Clips {
     const val RIGHT = "phrase_right"
     const val WRONG = "phrase_wrong"
     const val PHOTO = "phrase_photo"
+    const val OFF_ROUTE = "phrase_off_route"
+    const val NEAR = "phrase_near"
+
+    /** Подсказка Троши о повороте. */
+    fun turn(turn: Turn) = when (turn) {
+        Turn.LEFT -> "phrase_turn_left"
+        Turn.RIGHT -> "phrase_turn_right"
+        Turn.SLIGHT_LEFT -> "phrase_slight_left"
+        Turn.SLIGHT_RIGHT -> "phrase_slight_right"
+        Turn.U_TURN -> "phrase_u_turn"
+    }
 
     fun narrator(index: Int) = "stop${index + 1}_narrator"
     fun trosha(index: Int) = "stop${index + 1}_trosha"
