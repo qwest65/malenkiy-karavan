@@ -11,8 +11,8 @@ android {
         applicationId = "ru.cultureguide.kids"
         minSdk = 26
         targetSdk = 35
-        versionCode = 8
-        versionName = "0.5.0"
+        versionCode = 9
+        versionName = "0.5.1"
     }
     signingConfigs {
         // Постоянный debug-ключ из репозитория: каждая сборка CI ставится поверх предыдущей без удаления

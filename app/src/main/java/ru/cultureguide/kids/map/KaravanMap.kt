@@ -8,6 +8,8 @@ import android.graphics.Color
 import android.graphics.Paint
 import android.graphics.Path
 import android.graphics.Typeface
+import android.os.Handler
+import android.os.Looper
 import android.os.SystemClock
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -64,7 +66,8 @@ import ru.cultureguide.navigation.LocationFix
  *
  * Как в навигаторе, карта по умолчанию следует за нами ([following]): мы в центре,
  * карта повёрнута туда, куда идём, а наше место показано стрелкой. Стоит сдвинуть карту
- * пальцем — слежение выключается; кнопка 🧭 ([follow]) включает его снова.
+ * пальцем — слежение выключается и само возвращается через [RESUME_FOLLOW_MS] после того,
+ * как карту отпустили; кнопка 🧭 ([follow]) возвращает его сразу.
  * Без интернета подложка заменяется однотонным фоном, а маршрут и точки остаются на месте.
  */
 class KaravanMap(
@@ -81,6 +84,8 @@ class KaravanMap(
     private var approach: List<GeoPoint>? = null
     private var heading: Double? = null
     private var lastCameraAtMs = 0L
+    private val main = Handler(Looper.getMainLooper())
+    private val resumeFollow = Runnable { follow() }
 
     /** Карта следует за нами и поворачивается по направлению движения. */
     var following by mutableStateOf(true)
@@ -98,7 +103,17 @@ class KaravanMap(
         view.getMapAsync { m ->
             map = m
             m.addOnCameraMoveStartedListener { reason ->
-                if (reason == MapLibreMap.OnCameraMoveStartedListener.REASON_API_GESTURE) following = false
+                if (reason == MapLibreMap.OnCameraMoveStartedListener.REASON_API_GESTURE) {
+                    following = false
+                    main.removeCallbacks(resumeFollow)
+                }
+            }
+            // Карту отпустили — через несколько секунд она сама вернётся к нам.
+            m.addOnCameraIdleListener {
+                if (!following) {
+                    main.removeCallbacks(resumeFollow)
+                    main.postDelayed(resumeFollow, RESUME_FOLLOW_MS)
+                }
             }
             m.uiSettings.apply {
                 isRotateGesturesEnabled = true
@@ -111,6 +126,7 @@ class KaravanMap(
     }
 
     fun detach() {
+        main.removeCallbacks(resumeFollow)
         map = null
         style = null
         fitted = false
@@ -131,6 +147,7 @@ class KaravanMap(
 
     /** Кнопка 🧭: снова вести за собой. */
     fun follow() {
+        main.removeCallbacks(resumeFollow)
         following = true
         followCamera(animate = true, force = true)
     }
@@ -392,6 +409,7 @@ class KaravanMap(
         const val FOLLOW_ZOOM = 17.5
         const val FOLLOW_TILT = 40.0
         const val CAMERA_INTERVAL_MS = 300L
+        const val RESUME_FOLLOW_MS = 5_000L
         const val PROP_ICON = "icon"
         const val PROP_SIZE = "size"
         const val PROP_STATE = "state"
