@@ -3,8 +3,8 @@ package ru.cultureguide.kids.content
 import kotlin.math.roundToInt
 
 /**
- * Прогулка и альбом. Родитель выбирает точки ([plan], всегда в порядке маршрута),
- * их можно пройти, пропустить или прервать прогулку. Найденные вещи ([found])
+ * Прогулка и альбом. Родитель сам составляет маршрут ([plan]) — любые точки в любом
+ * порядке; их можно пройти, пропустить или прервать прогулку. Найденные вещи ([found])
  * остаются в альбоме между прогулками.
  */
 data class Journey(
@@ -38,9 +38,9 @@ data class Journey(
 
     fun isFound(index: Int): Boolean = index in found
 
-    /** Новая прогулка по выбранным точкам (порядок — как в маршруте). */
-    fun start(selection: Collection<Int>): Journey {
-        val chosen = selection.filter { it in 0 until stopCount }.distinct().sorted()
+    /** Новая прогулка по выбранным точкам в том порядке, в каком их расставил родитель. */
+    fun start(selection: List<Int>): Journey {
+        val chosen = selection.filter { it in 0 until stopCount }.distinct()
         require(chosen.isNotEmpty()) { "Нужно выбрать хотя бы одну точку" }
         return copy(plan = chosen, position = 0, walkFound = emptySet())
     }

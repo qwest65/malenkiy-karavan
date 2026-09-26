@@ -61,9 +61,15 @@ fun walkingMeters(path: WalkPath?, fix: LocationFix, straightMeters: Double): Do
     return if (progress.offPathMeters <= ON_PATH_METERS) progress.remainingMeters + progress.offPathMeters else straightMeters
 }
 
-/** Пешеходные линии между точками маршрута: `from` < `to`, индексы — номера точек. */
-class RoutePaths(private val legs: Map<Pair<Int, Int>, WalkPath>) {
-    fun between(from: Int, to: Int): WalkPath? = legs[from to to]
+/**
+ * Пешеходные линии между точками маршрута; индексы — номера точек. Линия хранится
+ * в одну сторону, обратный путь — та же линия задом наперёд.
+ */
+class RoutePaths(legs: Map<Pair<Int, Int>, WalkPath>) {
+    private val both: Map<Pair<Int, Int>, WalkPath> =
+        legs + legs.map { (key, path) -> (key.second to key.first) to WalkPath(path.points.reversed()) }
+
+    fun between(from: Int, to: Int): WalkPath? = both[from to to]
 
     /** Длина прогулки по выбранным точкам; null, если хоть одной линии нет. */
     fun planMeters(plan: List<Int>): Double? =

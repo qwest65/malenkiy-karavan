@@ -94,7 +94,7 @@ def main():
     for n, stop in enumerate(route["stops"], start=1):
         say(f"stop{n}_narrator", stop["narrator"], NARRATOR)
         say(f"stop{n}_trosha", stop["trosha"], TROSHA)
-        say(f"stop{n}_task", stop["task"], NARRATOR)
+        say(f"stop{n}_task", stop["question"]["voice"], NARRATOR)
     bell()
 
 

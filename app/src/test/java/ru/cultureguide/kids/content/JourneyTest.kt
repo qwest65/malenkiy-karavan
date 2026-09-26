@@ -8,17 +8,17 @@ import org.junit.Test
 
 class JourneyTest {
     @Test
-    fun chosenStopsAreVisitedInRouteOrder() {
-        var journey = Journey(stopCount = 5).start(listOf(4, 0, 2))
-        assertEquals(listOf(0, 2, 4), journey.plan)
-        assertEquals(0, journey.activeStop)
+    fun chosenStopsAreVisitedInChosenOrder() {
+        var journey = Journey(stopCount = 5).start(listOf(4, 0, 2, 0))
+        assertEquals(listOf(4, 0, 2), journey.plan)
+        assertEquals(4, journey.activeStop)
         assertNull(journey.previousStop)
 
-        journey = journey.collect(0)
-        assertEquals(2, journey.activeStop)
-        assertEquals(0, journey.previousStop)
+        journey = journey.collect(4)
+        assertEquals(0, journey.activeStop)
+        assertEquals(4, journey.previousStop)
 
-        journey = journey.collect(2).collect(4)
+        journey = journey.collect(0).collect(2)
         assertTrue(journey.walkComplete)
         assertTrue(journey.badge)
         assertEquals(setOf(0, 2, 4), journey.found)

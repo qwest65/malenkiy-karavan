@@ -1,6 +1,7 @@
 package ru.cultureguide.kids
 
 import android.content.Context
+import android.graphics.BitmapFactory
 import android.location.Location
 import android.os.SystemClock
 import androidx.compose.runtime.getValue
@@ -17,6 +18,9 @@ import ru.cultureguide.kids.content.RoutePaths
 import ru.cultureguide.kids.content.WalkPath
 import ru.cultureguide.kids.content.walkingMeters
 import ru.cultureguide.kids.map.ApproachRouter
+import ru.cultureguide.kids.photo.Collage
+import ru.cultureguide.kids.photo.CollageCard
+import ru.cultureguide.kids.photo.PhotoStore
 import ru.cultureguide.model.Place
 import ru.cultureguide.navigation.GeoPoint
 import ru.cultureguide.navigation.GuidanceEngine
@@ -45,11 +49,12 @@ class KaravanController(
     val paths: RoutePaths,
     val player: ClipPlayer,
     private val audioGuide: AudioGuide,
-    private val router: ApproachRouter
+    private val router: ApproachRouter,
+    /** Фото на память с точек и коллаж из них. */
+    val photos: PhotoStore
 ) {
+    private val appContext = context.applicationContext
     private val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-    // Точки проходятся строго по порядку: засчитываем только текущую.
-    private val engine = GuidanceEngine(lookAhead = 0)
     private val points = places.map { GeoPoint(it.lat, it.lon) }
 
     var screen by mutableStateOf(Screen.Home)
@@ -66,6 +71,9 @@ class KaravanController(
         private set
     var result by mutableStateOf<WalkResult?>(null)
         private set
+    /** Вариант, который ребёнок выбрал в вопросе на открытой точке; null — ещё не отвечал. */
+    var quizChoice by mutableStateOf<Int?>(null)
+        private set
     /**
      * Линия «от меня до точки», когда до пешеходных линий маршрута далеко: по улицам,
      * если OSRM ответил, иначе прямая. null — идём по линии маршрута.
@@ -81,7 +89,7 @@ class KaravanController(
     val parentStoryPlaying: Boolean get() = audioGuide.speakingPlaceId == places.getOrNull(openedStop)?.id
 
     /** Длина прогулки по выбранным точкам вдоль пешеходных линий; null — линий нет. */
-    fun planMeters(plan: List<Int>): Double? = paths.planMeters(plan.sorted())
+    fun planMeters(plan: List<Int>): Double? = paths.planMeters(plan)
 
     fun openChooser() {
         stopAudio()
@@ -89,7 +97,7 @@ class KaravanController(
     }
 
     /** Новая прогулка по выбранным точкам. */
-    fun startWalk(selection: Collection<Int>) {
+    fun startWalk(selection: List<Int>) {
         if (selection.isEmpty()) return
         stopAudio()
         journey = journey.start(selection).also(::save)
@@ -142,6 +150,8 @@ class KaravanController(
             distanceToTarget = null
             return
         }
+        // Точки проходятся строго по порядку: засчитываем только текущую, со своим радиусом прибытия.
+        val engine = GuidanceEngine(arrivalRadiusMeters = route.stops[target].radiusMeters, lookAhead = 0)
         val update = engine.update(journey.plan.map { points[it] }, journey.position, fix)
         val straight = update.distanceToTarget ?: return
         // К первой точке прогулки линии маршрута нет — идём от того места, где стоим.
@@ -179,6 +189,7 @@ class KaravanController(
     fun arrive() {
         val stop = journey.activeStop ?: return
         openedStop = stop
+        quizChoice = null
         screen = Screen.Stop
         audioGuide.stop()
         player.play(Clips.arrival(stop))
@@ -196,6 +207,55 @@ class KaravanController(
         }
     }
 
+    /** Ребёнок выбрал вариант ответа: Троша хвалит или просит попробовать ещё раз. */
+    fun answer(option: Int) {
+        quizChoice = option
+        audioGuide.stop()
+        if (route.stops[openedStop].question.isRight(option)) {
+            player.play(Clips.RIGHT, Clips.PHOTO)
+        } else {
+            player.play(Clips.WRONG)
+        }
+    }
+
+    /** Фото сохранено: если у всех найденных вещей есть фото, коллаж собирается сам. */
+    fun onPhotoSaved() {
+        refreshCollage()
+    }
+
+    /** Сколько найденных вещей ещё без фото — пока их больше нуля, коллажа нет. */
+    fun photosMissing(): Int = journey.found.count { !photos.has(it) }
+
+    private fun refreshCollage() {
+        val found = route.defaultOrder.filter { journey.isFound(it) } +
+            journey.found.filter { it !in route.defaultOrder }.sorted()
+        if (found.isEmpty() || found.any { !photos.has(it) }) {
+            photos.deleteCollage()
+            return
+        }
+        val badge = journey.badge
+        val titles = found.associateWith { route.stops[it].title }
+        val stickers = found.associateWith { route.stops[it].sticker }
+        photos.saveCollage {
+            val cards = found.mapNotNull { stop ->
+                photos.load(stop, COLLAGE_PHOTO_PX)?.let { CollageCard(it, titles.getValue(stop), sticker(stickers.getValue(stop))) }
+            }
+            if (cards.isEmpty()) {
+                null
+            } else {
+                Collage.render(
+                    cards,
+                    subtitle = "Мои находки с Трошей · ${cards.size} ${placesWord(cards.size)}",
+                    badge = if (badge) sticker(route.badge) else null,
+                    trosha = sticker("trosha")
+                ).also { cards.forEach { c -> c.photo.recycle() } }
+            }
+        }
+    }
+
+    private fun sticker(name: String) =
+        runCatching { appContext.assets.open("kids/stickers/$name.webp").use { BitmapFactory.decodeStream(it) } }.getOrNull()
+
     /** Кнопка динамика на карте: остановить озвучку или ещё раз позвать за собой. */
     fun toggleWalkHint() {
         if (speaking) player.stop() else player.play(Clips.GO)
@@ -205,6 +265,7 @@ class KaravanController(
     fun completeStop() {
         stopAudio()
         journey = journey.collect(openedStop).also(::save)
+        refreshCollage()
         if (journey.walkComplete) {
             endWalk(complete = true)
         } else {
@@ -216,7 +277,7 @@ class KaravanController(
 
     private fun endWalk(complete: Boolean) {
         stopAudio()
-        result = WalkResult(complete, journey.walkFound.sorted())
+        result = WalkResult(complete, journey.plan.filter { it in journey.walkFound })
         journey = journey.finish().also(::save)
         distanceToTarget = null
         approachLine = null
@@ -246,9 +307,10 @@ class KaravanController(
         screen = Screen.Home
     }
 
-    /** Очистить альбом и значок; начатая прогулка тоже сбрасывается. */
+    /** Очистить альбом, фото и значок; начатая прогулка тоже сбрасывается. */
     fun resetAlbum() {
         stopAudio()
+        photos.clear()
         journey = journey.reset().also(::save)
         screen = Screen.Home
     }
@@ -262,6 +324,7 @@ class KaravanController(
         player.stop()
         audioGuide.shutdown()
         router.shutdown()
+        photos.shutdown()
     }
 
     private fun loadJourney(): Journey {
@@ -269,7 +332,7 @@ class KaravanController(
         if (prefs.getString(KEY_ROUTE, null) != route.id) return Journey(count)
         fun indices(key: String) =
             prefs.getString(key, "").orEmpty().split(',').mapNotNull { it.toIntOrNull() }.filter { it in 0 until count }
-        val plan = indices(KEY_PLAN).distinct().sorted()
+        val plan = indices(KEY_PLAN).distinct()
         return Journey(
             stopCount = count,
             plan = plan,
@@ -291,7 +354,16 @@ class KaravanController(
             .apply()
     }
 
+    private fun placesWord(n: Int): String = when {
+        n % 100 in 11..14 -> "мест"
+        n % 10 == 1 -> "место"
+        n % 10 in 2..4 -> "места"
+        else -> "мест"
+    }
+
     private companion object {
+        const val COLLAGE_PHOTO_PX = 900
+
         // Новое имя файла: в «journey» версии 0.1.0 прогресс хранился в другом формате.
         const val PREFS = "journey2"
         const val KEY_ROUTE = "route"

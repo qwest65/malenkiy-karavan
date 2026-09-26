@@ -13,10 +13,20 @@ data class KidsStop(
     val sticker: String,
     val narrator: String,
     val trosha: String,
-    val task: String,
+    /** Игра на месте: показать, найти, изобразить. */
+    val activity: String,
+    /** Вопрос с вариантами ответа по рассказу. */
+    val question: Quiz,
     /** Подсказка для взрослого: даты и как объяснить ребёнку. */
-    val parent: String
-)
+    val parent: String,
+    /** Радиус прибытия, м: у точек, стоящих рядом друг с другом, он меньше. */
+    val radiusMeters: Double = DEFAULT_RADIUS_M
+) {
+    companion object {
+        const val DEFAULT_RADIUS_M = 45.0
+    }
+}
+
 
 data class KidsRoute(
     val id: String,
@@ -28,7 +38,9 @@ data class KidsRoute(
     val intro: String,
     /** Троша прощается после прогулки, пройденной до конца. */
     val finale: String,
-    val stops: List<KidsStop>
+    val stops: List<KidsStop>,
+    /** Порядок точек для кнопки «Весь маршрут». */
+    val defaultOrder: List<Int> = stops.indices.toList()
 )
 
 /**
@@ -44,12 +56,15 @@ object Clips {
     const val FOUND = "phrase_found"
     const val ROAD = "phrase_road"
     const val LATER = "phrase_later"
+    const val RIGHT = "phrase_right"
+    const val WRONG = "phrase_wrong"
+    const val PHOTO = "phrase_photo"
 
     fun narrator(index: Int) = "stop${index + 1}_narrator"
     fun trosha(index: Int) = "stop${index + 1}_trosha"
     fun task(index: Int) = "stop${index + 1}_task"
 
-    /** Всё, что звучит при подходе к точке: звон, рассказ, находка Троши и задание. */
+    /** Всё, что звучит при подходе к точке: звон, рассказ, находка Троши и вопрос. */
     fun arrival(index: Int) = listOf(BELL, ARRIVED, narrator(index), trosha(index), task(index))
 }
 
@@ -62,6 +77,7 @@ object KidsRouteLoader {
     fun parse(text: String): KidsRoute {
         val json = JSONObject(text)
         val stops = json.getJSONArray("stops")
+        val order = json.optJSONArray("default_order")
         return KidsRoute(
             id = json.getString("id"),
             title = json.getString("title"),
@@ -80,10 +96,17 @@ object KidsRouteLoader {
                     sticker = s.getString("sticker"),
                     narrator = s.getString("narrator"),
                     trosha = s.getString("trosha"),
-                    task = s.getString("task"),
-                    parent = s.optString("parent")
+                    activity = s.optString("activity"),
+                    question = s.getJSONObject("question").let { q ->
+                        val options = q.getJSONArray("options")
+                        Quiz(q.getString("text"), List(options.length()) { options.getString(it) }, q.getInt("answer"))
+                    },
+                    parent = s.optString("parent"),
+                    radiusMeters = s.optDouble("radius", KidsStop.DEFAULT_RADIUS_M)
                 )
-            }
+            },
+            defaultOrder = order?.let { a -> List(a.length()) { a.getInt(it) }.filter { it in 0 until stops.length() } }
+                ?: List(stops.length()) { it }
         )
     }
 }

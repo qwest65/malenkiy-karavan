@@ -13,6 +13,17 @@ import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.scaleIn
 import androidx.compose.foundation.background
+import androidx.compose.foundation.Image
+import androidx.compose.runtime.mutableStateListOf
+import androidx.compose.runtime.produceState
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalDensity
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import ru.cultureguide.kids.photo.PhotoStore
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.Orientation
 import androidx.compose.foundation.gestures.draggable
@@ -89,8 +100,15 @@ class MapHooks(
  * @param ensureLocation просит доступ к геолокации и включает её — перед началом
  * или продолжением прогулки.
  */
+/** Фото с точек: снять, выбрать из галереи, поделиться коллажем. Живёт в активности. */
+class PhotoHooks(
+    val takePhoto: (Int) -> Unit,
+    val pickPhoto: (Int) -> Unit,
+    val shareCollage: () -> Unit
+)
+
 @Composable
-fun KaravanApp(controller: KaravanController, ensureLocation: () -> Unit, map: MapHooks) {
+fun KaravanApp(controller: KaravanController, ensureLocation: () -> Unit, map: MapHooks, photo: PhotoHooks) {
     BackHandler(enabled = controller.screen != Screen.Home) {
         when (controller.screen) {
             Screen.Stop -> controller.backToWalk()
@@ -103,9 +121,9 @@ fun KaravanApp(controller: KaravanController, ensureLocation: () -> Unit, map: M
             Screen.Home -> HomeScreen(controller, ensureLocation)
             Screen.Choose -> ChooseScreen(controller, ensureLocation)
             Screen.Walk -> WalkScreen(controller, map)
-            Screen.Stop -> StopScreen(controller)
+            Screen.Stop -> StopScreen(controller, photo)
             Screen.Finale -> FinaleScreen(controller)
-            Screen.Album -> AlbumScreen(controller)
+            Screen.Album -> AlbumScreen(controller, photo)
         }
     }
 }
@@ -182,73 +200,120 @@ private fun HomeScreen(c: KaravanController, ensureLocation: () -> Unit) {
     }
 }
 
-/** Родитель выбирает, какие точки пройти сегодня; идём всегда в порядке маршрута. */
+/**
+ * Родитель сам составляет маршрут: добавляет точки, убирает их и меняет порядок стрелками.
+ * По кнопке «Весь маршрут» подставляется порядок, предложенный в route.json.
+ */
 @Composable
 private fun ChooseScreen(c: KaravanController, ensureLocation: () -> Unit) {
-    var selected by remember { mutableStateOf(c.route.stops.indices.toSet()) }
-    val plan = selected.sorted()
+    val plan = remember { mutableStateListOf<Int>().apply { addAll(c.route.defaultOrder) } }
+    val rest = c.route.stops.indices.filter { it !in plan }
     ScrollPage {
         Row(Modifier.fillMaxWidth()) {
             TextButton(onClick = c::goHome) { Text("← Назад", color = Karavan.Muted) }
         }
         Text("Куда пойдём?", fontSize = 30.sp, fontWeight = FontWeight.Black, color = Karavan.Ink)
         Text(
-            "Отметьте точки на сегодня. Пойдём по порядку маршрута.",
+            "Соберите свой маршрут: добавляйте точки и меняйте порядок стрелками.",
             fontSize = 16.sp,
             color = Karavan.Muted,
             textAlign = TextAlign.Center
         )
-        c.route.stops.forEachIndexed { i, stop ->
-            val checked = i in selected
-            Card(
-                modifier = Modifier.fillMaxWidth().clickable { selected = if (checked) selected - i else selected + i },
-                shape = RoundedCornerShape(20.dp),
-                colors = CardDefaults.cardColors(containerColor = if (checked) Karavan.Card else Karavan.Kraft.copy(alpha = 0.4f))
-            ) {
-                Row(
-                    Modifier.fillMaxWidth().padding(12.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            TextButton(onClick = { plan.clear(); plan.addAll(c.route.defaultOrder) }) { Text("Весь маршрут", color = Karavan.Ink) }
+            TextButton(onClick = { plan.clear() }) { Text("Очистить", color = Karavan.Ink) }
+        }
+        if (plan.isEmpty()) {
+            Text("Маршрут пуст — добавьте точки ниже", fontSize = 17.sp, fontWeight = FontWeight.Bold, color = Karavan.Red)
+        }
+        plan.forEachIndexed { pos, i ->
+            PlanStopCard(
+                c = c,
+                index = i,
+                number = pos + 1,
+                onUp = if (pos > 0) ({ plan.removeAt(pos); plan.add(pos - 1, i) }) else null,
+                onDown = if (pos < plan.lastIndex) ({ plan.removeAt(pos); plan.add(pos + 1, i) }) else null,
+                onRemove = { plan.removeAt(pos) }
+            )
+        }
+        if (rest.isNotEmpty()) {
+            Text("Добавить точку", fontSize = 20.sp, fontWeight = FontWeight.Bold, color = Karavan.Ink, modifier = Modifier.fillMaxWidth())
+            rest.forEach { i ->
+                Card(
+                    modifier = Modifier.fillMaxWidth().clickable { plan.add(i) },
+                    shape = RoundedCornerShape(20.dp),
+                    colors = CardDefaults.cardColors(containerColor = Karavan.Kraft.copy(alpha = 0.4f))
                 ) {
-                    Checkbox(
-                        checked = checked,
-                        onCheckedChange = { selected = if (it) selected + i else selected - i },
-                        colors = CheckboxDefaults.colors(checkedColor = Karavan.Red)
-                    )
-                    if (c.journey.isFound(i)) {
-                        Sticker(stop.sticker, Modifier.size(52.dp))
-                    } else {
-                        Mystery(Modifier.size(44.dp), fontSize = 24)
-                    }
-                    Column(Modifier.weight(1f)) {
-                        Text("${i + 1}. ${stop.title}", fontSize = 17.sp, fontWeight = FontWeight.Bold, color = Karavan.Ink)
-                        Text(
-                            if (c.journey.isFound(i)) "Уже в альбоме: ${stop.item}" else "Здесь спрятана вещь Троши",
-                            fontSize = 14.sp,
-                            color = Karavan.Muted
-                        )
+                    Row(
+                        Modifier.fillMaxWidth().padding(12.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        StopThumb(c, i)
+                        Text(c.route.stops[i].title, fontSize = 17.sp, color = Karavan.Ink, modifier = Modifier.weight(1f))
+                        SmallButton("＋") { plan.add(i) }
                     }
                 }
             }
-        }
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            TextButton(onClick = { selected = c.route.stops.indices.toSet() }) { Text("Выбрать все", color = Karavan.Ink) }
-            TextButton(onClick = { selected = emptySet() }) { Text("Снять все", color = Karavan.Ink) }
         }
         Text(
             if (plan.isEmpty()) {
                 "Выберите хотя бы одну точку"
             } else {
                 listOfNotNull(
-                    "Выбрано ${plan.size} из ${c.route.stops.size}",
-                    c.planMeters(plan)?.takeIf { plan.size > 1 }?.let { "${formatDistance(it)} пешком" }
+                    "${plan.size} ${pointsWord(plan.size)}",
+                    c.planMeters(plan.toList())?.takeIf { plan.size > 1 }?.let { "${formatDistance(it)} пешком" }
                 ).joinToString(" · ")
             },
             fontSize = 17.sp,
             fontWeight = FontWeight.Bold,
             color = if (plan.isEmpty()) Karavan.Red else Karavan.Ink
         )
-        BigButton("Идём!", enabled = plan.isNotEmpty(), onClick = { ensureLocation(); c.startWalk(plan) })
+        BigButton("Идём!", enabled = plan.isNotEmpty(), onClick = { ensureLocation(); c.startWalk(plan.toList()) })
+    }
+}
+
+/** Точка в составленном маршруте: номер, название и кнопки ↑ ↓ ✕. */
+@Composable
+private fun PlanStopCard(
+    c: KaravanController,
+    index: Int,
+    number: Int,
+    onUp: (() -> Unit)?,
+    onDown: (() -> Unit)?,
+    onRemove: () -> Unit
+) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(20.dp),
+        colors = CardDefaults.cardColors(containerColor = Karavan.Card)
+    ) {
+        Row(
+            Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Text("$number", fontSize = 22.sp, fontWeight = FontWeight.Black, color = Karavan.Red)
+            StopThumb(c, index)
+            Column(Modifier.weight(1f)) {
+                Text(c.route.stops[index].title, fontSize = 16.sp, fontWeight = FontWeight.Bold, color = Karavan.Ink)
+                if (c.journey.isFound(index)) {
+                    Text("Уже в альбоме", fontSize = 13.sp, color = Karavan.Muted)
+                }
+            }
+            SmallButton("↑", enabled = onUp != null) { onUp?.invoke() }
+            SmallButton("↓", enabled = onDown != null) { onDown?.invoke() }
+            SmallButton("✕", onClick = onRemove)
+        }
+    }
+}
+
+@Composable
+private fun StopThumb(c: KaravanController, index: Int) {
+    if (c.journey.isFound(index)) {
+        Sticker(c.route.stops[index].sticker, Modifier.size(44.dp))
+    } else {
+        Mystery(Modifier.size(40.dp), fontSize = 22)
     }
 }
 
@@ -389,7 +454,7 @@ private fun FinishDialog(onConfirm: () -> Unit, onDismiss: () -> Unit) {
 }
 
 @Composable
-private fun StopScreen(c: KaravanController) {
+private fun StopScreen(c: KaravanController, photo: PhotoHooks) {
     val index = c.openedStop
     val stop = c.route.stops[index]
     val journey = c.journey
@@ -405,6 +470,10 @@ private fun StopScreen(c: KaravanController) {
         }
     }
     var parentOpen by remember(index) { mutableStateOf(false) }
+    // Правильный ответ записан первым; на экране варианты перемешаны.
+    val optionOrder = remember(index) { stop.question.options.indices.shuffled() }
+    val choice = c.quizChoice
+    val answeredRight = choice != null && stop.question.isRight(choice)
 
     ScrollPage {
         Row(Modifier.fillMaxWidth()) {
@@ -421,9 +490,43 @@ private fun StopScreen(c: KaravanController) {
         StoryCard("Рассказчик", stop.narrator)
         StoryCard("Троша", stop.trosha, avatar = "trosha")
         Panel(color = Karavan.Gold.copy(alpha = 0.35f)) {
-            Text("⭐ Задание", fontSize = 20.sp, fontWeight = FontWeight.Black, color = Karavan.Ink)
-            Text(stop.task, fontSize = 20.sp, color = Karavan.Ink)
+            Text("❓ ${stop.question.text}", fontSize = 21.sp, fontWeight = FontWeight.Black, color = Karavan.Ink)
+            optionOrder.forEach { option ->
+                val picked = choice == option
+                val right = stop.question.isRight(option)
+                val color = when {
+                    picked && right -> Karavan.Green
+                    picked -> Karavan.Red.copy(alpha = 0.75f)
+                    answeredRight -> Karavan.Card.copy(alpha = 0.6f)
+                    else -> Karavan.Card
+                }
+                Button(
+                    onClick = { c.answer(option) },
+                    enabled = !answeredRight || picked,
+                    modifier = Modifier.fillMaxWidth().height(58.dp),
+                    shape = RoundedCornerShape(20.dp),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = color,
+                        contentColor = if (picked) Color.White else Karavan.Ink,
+                        disabledContainerColor = color,
+                        disabledContentColor = Karavan.Muted
+                    )
+                ) {
+                    Text(stop.question.options[option], fontSize = 20.sp, fontWeight = FontWeight.Bold)
+                }
+            }
+            when {
+                answeredRight -> Text("⭐ Правильно! Молодец!", fontSize = 20.sp, fontWeight = FontWeight.Bold, color = Karavan.Green)
+                choice != null -> Text("Не совсем — попробуй ещё раз!", fontSize = 18.sp, color = Karavan.Red)
+            }
         }
+        if (stop.activity.isNotBlank()) {
+            Panel {
+                Text("🎲 Игра", fontSize = 18.sp, fontWeight = FontWeight.Bold, color = Karavan.Muted)
+                Text(stop.activity, fontSize = 18.sp, color = Karavan.Ink)
+            }
+        }
+        PhotoPanel(c, index, photo)
         Panel(color = Karavan.Kraft.copy(alpha = 0.6f)) {
             TextButton(onClick = { parentOpen = !parentOpen }) {
                 Text(if (parentOpen) "▾ Для взрослых" else "▸ Для взрослых", fontSize = 17.sp, color = Karavan.Ink)
@@ -438,6 +541,29 @@ private fun StopScreen(c: KaravanController) {
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
             RoundButton(if (c.speaking) "⏹" else "🔊", c::toggleStopStory)
             BigButton(if (last) "Ура! Завершить прогулку" else "Готово! Идём дальше", Modifier.weight(1f), onClick = c::completeStop)
+        }
+    }
+}
+
+/** Фото на память с этой точки: снять камерой или выбрать из галереи. */
+@Composable
+private fun PhotoPanel(c: KaravanController, index: Int, photo: PhotoHooks) {
+    val image = rememberStopPhoto(c, index, PREVIEW_DP)
+    Panel {
+        Text("📷 Фото на память", fontSize = 18.sp, fontWeight = FontWeight.Bold, color = Karavan.Muted)
+        if (image != null) {
+            Image(
+                bitmap = image,
+                contentDescription = "Фото с точки",
+                contentScale = ContentScale.Crop,
+                modifier = Modifier.fillMaxWidth().height(220.dp).clip(RoundedCornerShape(16.dp))
+            )
+        } else {
+            Text("Сфотографируйтесь здесь вместе — из фото сложится коллаж в альбоме.", fontSize = 16.sp, color = Karavan.Ink)
+        }
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            OutlinedButton(onClick = { photo.takePhoto(index) }) { Text(if (image != null) "Переснять" else "📸 Камера") }
+            OutlinedButton(onClick = { photo.pickPhoto(index) }) { Text("🖼 Из галереи") }
         }
     }
 }
@@ -490,20 +616,56 @@ private fun FinaleScreen(c: KaravanController) {
 }
 
 @Composable
-private fun AlbumScreen(c: KaravanController) {
+private fun AlbumScreen(c: KaravanController, photo: PhotoHooks) {
     val journey = c.journey
+    val version = c.photos.version
+    val collage = rememberCollage(c)
+    val missing = remember(version, journey) { c.photosMissing() }
     ScrollPage {
         Row(Modifier.fillMaxWidth()) {
             TextButton(onClick = c::goHome) { Text("← Назад", color = Karavan.Muted) }
         }
         Text("Мой альбом", fontSize = 30.sp, fontWeight = FontWeight.Black, color = Karavan.Ink)
         Text("Найдено ${journey.found.size} из ${journey.stopCount}", fontSize = 17.sp, color = Karavan.Muted)
-        c.route.stops.chunked(2).forEachIndexed { row, pair ->
+        if (collage != null) {
+            Panel {
+                Text("🖼 Коллаж прогулки", fontSize = 20.sp, fontWeight = FontWeight.Bold, color = Karavan.Ink)
+                Image(
+                    bitmap = collage,
+                    contentDescription = "Коллаж из фото прогулки",
+                    modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp))
+                )
+                OutlinedButton(onClick = photo.shareCollage) { Text("Поделиться или сохранить") }
+            }
+        } else if (journey.found.isNotEmpty()) {
+            Panel(color = Karavan.Gold.copy(alpha = 0.3f)) {
+                Text(
+                    "Добавьте фото ещё к $missing ${findsWord(missing)} — и коллаж соберётся сам.",
+                    fontSize = 16.sp,
+                    color = Karavan.Ink
+                )
+            }
+        }
+        c.route.stops.indices.chunked(2).forEach { pair ->
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                pair.forEachIndexed { col, stop ->
-                    val found = journey.isFound(row * 2 + col)
+                pair.forEach { i ->
+                    val stop = c.route.stops[i]
+                    val found = journey.isFound(i)
+                    val image = if (found) rememberStopPhoto(c, i, THUMB_DP) else null
                     AlbumCard(Modifier.weight(1f)) {
-                        Sticker(stop.sticker, Modifier.size(120.dp), found = found)
+                        if (image != null) {
+                            Box {
+                                Image(
+                                    bitmap = image,
+                                    contentDescription = "Фото: ${stop.title}",
+                                    contentScale = ContentScale.Crop,
+                                    modifier = Modifier.size(130.dp).clip(RoundedCornerShape(14.dp))
+                                )
+                                Sticker(stop.sticker, Modifier.size(48.dp).align(Alignment.TopEnd))
+                            }
+                        } else {
+                            Sticker(stop.sticker, Modifier.size(120.dp), found = found)
+                        }
                         Text(
                             if (found) stop.item else "Ещё не нашли",
                             fontSize = 16.sp,
@@ -512,6 +674,12 @@ private fun AlbumScreen(c: KaravanController) {
                             textAlign = TextAlign.Center
                         )
                         Text(stop.title, fontSize = 13.sp, color = Karavan.Muted, textAlign = TextAlign.Center)
+                        if (found) {
+                            Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                                SmallButton("📸") { photo.takePhoto(i) }
+                                SmallButton("🖼") { photo.pickPhoto(i) }
+                            }
+                        }
                     }
                 }
                 if (pair.size == 1) Spacer(Modifier.weight(1f))
@@ -529,6 +697,32 @@ private fun AlbumScreen(c: KaravanController) {
         }
     }
 }
+
+/** Фото точки для экрана; перечитывается, когда фото меняется. */
+@Composable
+private fun rememberStopPhoto(c: KaravanController, index: Int, sideDp: Int): ImageBitmap? {
+    val density = LocalDensity.current.density
+    val version = c.photos.version
+    val image by produceState<ImageBitmap?>(null, index, version) {
+        value = withContext(Dispatchers.IO) {
+            c.photos.load(index, PhotoStore.previewSide(density, sideDp))?.asImageBitmap()
+        }
+    }
+    return image
+}
+
+@Composable
+private fun rememberCollage(c: KaravanController): ImageBitmap? {
+    val version = c.photos.version
+    val image by produceState<ImageBitmap?>(null, version) {
+        value = withContext(Dispatchers.IO) { c.photos.loadCollage(COLLAGE_PX)?.asImageBitmap() }
+    }
+    return image
+}
+
+private const val PREVIEW_DP = 360
+private const val THUMB_DP = 130
+private const val COLLAGE_PX = 1080
 
 /** Знак вопроса, который с пружинкой превращается в наклейку найденной вещи. */
 @Composable
@@ -664,6 +858,20 @@ private fun PillButton(label: String, onClick: () -> Unit) {
 }
 
 @Composable
+private fun SmallButton(label: String, enabled: Boolean = true, onClick: () -> Unit) {
+    Button(
+        onClick = onClick,
+        enabled = enabled,
+        modifier = Modifier.size(44.dp),
+        shape = CircleShape,
+        contentPadding = androidx.compose.foundation.layout.PaddingValues(0.dp),
+        colors = ButtonDefaults.buttonColors(containerColor = Karavan.Kraft, contentColor = Karavan.Ink)
+    ) {
+        Text(label, fontSize = 20.sp, fontWeight = FontWeight.Bold)
+    }
+}
+
+@Composable
 private fun RoundButton(label: String, onClick: () -> Unit) {
     Button(
         onClick = onClick,
@@ -675,6 +883,9 @@ private fun RoundButton(label: String, onClick: () -> Unit) {
         Text(label, fontSize = 24.sp)
     }
 }
+
+/** «к 1 находке», «к 3 находкам». */
+private fun findsWord(n: Int): String = if (n % 10 == 1 && n % 100 != 11) "находке" else "находкам"
 
 private fun pointsWord(n: Int): String {
     val mod100 = n % 100
