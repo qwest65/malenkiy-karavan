@@ -105,8 +105,21 @@ def edge_say(text, voice, rate="+0%", pitch="+0Hz", attempts=4):
 
 # Ударения, которые синтезатор ставит неверно. Знак ударения (U+0301) добавляется только
 # в озвучиваемый текст — на экране слова остаются без него.
+# Римские века синтезатор читает как «восемнадцать веке» — заменяем словами.
+SPOKEN = {
+    "XVIII–XIX веках": "восемнадцатом и девятнадцатом веках",
+    "XVIII веке": "восемнадцатом веке",
+    "XIX веке": "девятнадцатом веке",
+    "XIX века": "девятнадцатого века",
+    "XX века": "двадцатого века",
+}
+
 STRESS = {
-    r"реки": "реки́",
+    # «Две реки́»: одного знака ударения синтезатору мало, поэтому пишем как слышится.
+    r"реки": "рики́",
+    r"города": "го́рода",
+    r"двадцатого": "двадца́того",
+    r"Троицкой": "Тро́йцкой",
     r"гербе": "ге́рбе",
     r"Троицк(\w*)": "Тро́ицк\\1",
     r"казаки": "казаки́",
@@ -116,6 +129,8 @@ STRESS = {
 
 
 def with_stress(text):
+    for written, spoken in SPOKEN.items():
+        text = text.replace(written, spoken)
     for word, spoken in STRESS.items():
         pattern = re.compile(rf"\b{word}\b", re.IGNORECASE)
 
@@ -155,11 +170,12 @@ def pitch_up(samples, factor):
     return np.interp(np.arange(0, len(samples) - 1, factor), np.arange(len(samples)), samples).astype(np.float32)
 
 
-def write(path, samples, rate):
+def write(path, samples, rate, tail=0.05):
     samples = tighten(samples, rate)
     peak = max(float(np.abs(samples).max()), 1e-6)
     pad = np.zeros(int(rate * 0.05), dtype=np.float32)
-    data = np.concatenate([pad, samples / peak * 0.9, pad])
+    # Тишина в конце фразы — пауза перед следующим фрагментом (рассказчик → Троша → вопрос).
+    data = np.concatenate([pad, samples / peak * 0.9, np.zeros(int(rate * tail), dtype=np.float32)])
     sf.write(path, data, rate, format="OGG", subtype="VORBIS")
     print(f"{path.name}  {len(data) / rate:.1f} с")
 
@@ -196,14 +212,17 @@ def bell(rate=22050):
     write(AUDIO / "bell.ogg", out, rate)
 
 
+PAUSE = 0.6
+
+
 def generate_all(route, catalog, voices):
     AUDIO.mkdir(parents=True, exist_ok=True)
 
     def trosha(name, text):
-        write(AUDIO / f"{name}.ogg", *voices.trosha(text))
+        write(AUDIO / f"{name}.ogg", *voices.trosha(text), tail=PAUSE)
 
     def narrator(name, text):
-        write(AUDIO / f"{name}.ogg", *voices.narrator(text))
+        write(AUDIO / f"{name}.ogg", *voices.narrator(text), tail=PAUSE)
 
     trosha("intro_trosha", route["intro"]["trosha"])
     trosha("finale_trosha", route["finale"]["trosha"])
