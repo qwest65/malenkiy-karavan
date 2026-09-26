@@ -1,0 +1,94 @@
+name: Voice
+
+# Озвучка голосами Microsoft Edge (edge-tts): ключ не нужен.
+# Запуск вручную: Actions → Voice → Run workflow.
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: "samples — образцы голосов в пред-релиз voice-samples; all — переозвучить приложение"
+        type: choice
+        options: ["samples", "all"]
+        default: "samples"
+      narrator:
+        description: "Голос рассказчика"
+        type: choice
+        options: ["ru-RU-DmitryNeural", "ru-RU-SvetlanaNeural", "ru-RU-DariyaNeural"]
+        default: "ru-RU-DmitryNeural"
+      trosha:
+        description: "Голос Троши"
+        type: choice
+        options: ["ru-RU-SvetlanaNeural", "ru-RU-DariyaNeural", "ru-RU-DmitryNeural"]
+        default: "ru-RU-SvetlanaNeural"
+      trosha_pitch:
+        description: "Тон Троши (выше — звучит моложе)"
+        type: choice
+        options: ["+25Hz", "+0Hz", "+15Hz", "+35Hz", "+45Hz"]
+        default: "+25Hz"
+
+permissions:
+  contents: write
+  actions: write
+
+concurrency:
+  group: voice-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  voice:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - run: pip install edge-tts soundfile numpy
+
+      - name: Voice samples
+        if: inputs.mode == 'samples'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python3 app/tools/generate_audio.py --engine edge --samples samples
+          cat > samples-notes.md <<'NOTES'
+          Один и тот же фрагмент (Свято-Троицкий собор) каждым голосом Microsoft Edge.
+
+          | Файл | Голос |
+          |---|---|
+          | Dmitry-… | Дмитрий (ru-RU-DmitryNeural) |
+          | Svetlana-… | Светлана (ru-RU-SvetlanaNeural) |
+          | Dariya-… | Дария (ru-RU-DariyaNeural) |
+
+          `narrator` — текст рассказчика. `trosha`, `trosha-higher`, `trosha-highest` — реплика Троши
+          обычным тоном, выше (+25 Гц) и ещё выше (+45 Гц), чуть быстрее обычного.
+          NOTES
+          gh release delete voice-samples --yes --cleanup-tag 2>/dev/null || true
+          gh release create voice-samples samples/*.ogg \
+            --target "$GITHUB_SHA" \
+            --title "Образцы голосов для озвучки" \
+            --notes-file samples-notes.md \
+            --prerelease \
+            --latest=false
+
+      - name: Voice the whole app
+        if: inputs.mode == 'all'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          NARRATOR: ${{ inputs.narrator }}
+          TROSHA: ${{ inputs.trosha }}
+          PITCH: ${{ inputs.trosha_pitch }}
+        run: |
+          python3 app/tools/generate_audio.py --engine edge --narrator "$NARRATOR" --trosha "$TROSHA" --trosha-pitch="$PITCH"
+          git add app/src/main/assets/kids/audio
+          if git diff --cached --quiet; then
+            echo "Озвучка не изменилась."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "Voice Malenkiy Karavan with Edge voices ($NARRATOR, $TROSHA $PITCH)"
+          git push
+          # Пуш от GITHUB_TOKEN не запускает workflow, поэтому сборку APK с новой озвучкой запускаем явно.
+          gh workflow run android.yml --ref "$GITHUB_REF_NAME"
