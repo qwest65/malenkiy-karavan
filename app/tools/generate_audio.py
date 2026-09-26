@@ -73,15 +73,27 @@ EDGE_VOICES = {
 }
 
 
-def edge_say(text, voice, rate="+0%", pitch="+0Hz"):
+def edge_say(text, voice, rate="+0%", pitch="+0Hz", attempts=4):
     import asyncio
     import tempfile
+    import time
 
     import edge_tts
 
+    # Многоточие и длинные тире сервис иногда не озвучивает — заменяем на обычную пунктуацию.
+    text = text.replace("…", ".").replace("—", ",")
     with tempfile.TemporaryDirectory() as tmp:
         mp3 = pathlib.Path(tmp) / "speech.mp3"
-        asyncio.run(edge_tts.Communicate(text, voice, rate=rate, pitch=pitch).save(str(mp3)))
+        for attempt in range(attempts):
+            try:
+                asyncio.run(edge_tts.Communicate(text, voice, rate=rate, pitch=pitch).save(str(mp3)))
+                break
+            except edge_tts.exceptions.EdgeTTSException as error:
+                # Сервис Microsoft иногда отвечает пустым потоком — пробуем ещё раз с паузой.
+                if attempt == attempts - 1:
+                    raise
+                print(f"  повтор после ошибки: {error}")
+                time.sleep(3 * (attempt + 1))
         samples, rate_hz = sf.read(mp3, dtype="float32")
     if samples.ndim > 1:
         samples = samples.mean(axis=1)
