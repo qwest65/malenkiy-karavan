@@ -57,6 +57,15 @@ class WalkPathTest {
     }
 
     @Test
+    fun reverseDirectionUsesTheSameLineBackwards() {
+        val paths = RoutePaths(mapOf((0 to 2) to path))
+        val back = paths.between(2, 0)!!
+        assertEquals(listOf(c, b, a), back.points)
+        assertEquals(path.lengthMeters, back.lengthMeters, 0.01)
+        assertEquals(path.lengthMeters, paths.planMeters(listOf(2, 0))!!, 0.01)
+    }
+
+    @Test
     fun rerouteOnlyWhenNoPathOrOffItAndNotTooOften() {
         val onPath = LocationFix(54.0005, 61.000)
         val offPath = LocationFix(54.003, 60.995)

@@ -11,8 +11,8 @@ android {
         applicationId = "ru.cultureguide.kids"
         minSdk = 26
         targetSdk = 35
-        versionCode = 4
-        versionName = "0.3.0"
+        versionCode = 6
+        versionName = "0.4.1"
     }
     signingConfigs {
         // Постоянный debug-ключ из репозитория: каждая сборка CI ставится поверх предыдущей без удаления
@@ -38,6 +38,8 @@ dependencies {
     // Вариант на OpenGL ES: основной артефакт требует Vulkan и не работает на части телефонов.
     implementation("org.maplibre.gl:android-sdk-opengl:13.6.1")
     implementation("androidx.activity:activity-compose:1.10.1")
+    implementation("androidx.core:core-ktx:1.15.0")
+    implementation("androidx.exifinterface:exifinterface:1.3.7")
     implementation("androidx.compose.ui:ui:1.8.3")
     implementation("androidx.compose.foundation:foundation:1.8.3")
     implementation("androidx.compose.runtime:runtime:1.8.3")
