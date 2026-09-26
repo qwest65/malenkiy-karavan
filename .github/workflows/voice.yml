@@ -1,28 +1,30 @@
 name: Voice
 
-# Озвучка через SaluteSpeech. Запускается вручную: Actions → Voice → Run workflow.
-# Нужен секрет репозитория SALUTE_AUTH_KEY — «Ключ авторизации» проекта SaluteSpeech API в Studio.
+# Озвучка голосами Microsoft Edge (edge-tts): ключ не нужен.
+# Запуск вручную: Actions → Voice → Run workflow.
 on:
   workflow_dispatch:
     inputs:
       mode:
-        description: "samples — образцы всех голосов в релиз voice-samples; all — переозвучить приложение"
+        description: "samples — образцы голосов в пред-релиз voice-samples; all — переозвучить приложение"
         type: choice
         options: ["samples", "all"]
         default: "samples"
       narrator:
         description: "Голос рассказчика"
         type: choice
-        options: ["Nec_24000", "Bys_24000", "May_24000", "Tur_24000", "Ost_24000", "Pon_24000"]
-        default: "Nec_24000"
+        options: ["ru-RU-DmitryNeural", "ru-RU-SvetlanaNeural", "ru-RU-DariyaNeural"]
+        default: "ru-RU-DmitryNeural"
       trosha:
         description: "Голос Троши"
         type: choice
-        options: ["May_24000", "Nec_24000", "Ost_24000", "Bys_24000", "Tur_24000", "Pon_24000"]
-        default: "May_24000"
+        options: ["ru-RU-SvetlanaNeural", "ru-RU-DariyaNeural", "ru-RU-DmitryNeural"]
+        default: "ru-RU-SvetlanaNeural"
       trosha_pitch:
-        description: "Поднять тон Троши (1.0 — как есть, 1.2 — выше и чуть быстрее)"
-        default: "1.0"
+        description: "Тон Троши (выше — звучит моложе)"
+        type: choice
+        options: ["+25Hz", "+0Hz", "+15Hz", "+35Hz", "+45Hz"]
+        default: "+25Hz"
 
 permissions:
   contents: write
@@ -35,9 +37,6 @@ concurrency:
 jobs:
   voice:
     runs-on: ubuntu-latest
-    env:
-      SALUTE_AUTH_KEY: ${{ secrets.SALUTE_AUTH_KEY }}
-      SALUTE_CA_FILE: ${{ github.workspace }}/russian-ca.pem
     steps:
       - uses: actions/checkout@v4
 
@@ -45,46 +44,30 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Check key
-        run: |
-          if [ -z "$SALUTE_AUTH_KEY" ]; then
-            echo "::error::Добавьте секрет SALUTE_AUTH_KEY: Settings → Secrets and variables → Actions."
-            exit 1
-          fi
-
-      - name: Russian trusted CA
-        # Серверы SaluteSpeech подписаны сертификатами НУЦ Минцифры, которых нет в системном хранилище.
-        run: |
-          curl -fsSL https://gu-st.ru/content/lending/russian_trusted_root_ca_pem.crt > russian-ca.pem
-          curl -fsSL https://gu-st.ru/content/lending/russian_trusted_sub_ca_pem.crt >> russian-ca.pem
-          grep -c "BEGIN CERTIFICATE" russian-ca.pem
-
-      - run: pip install soundfile numpy
+      - run: pip install edge-tts soundfile numpy
 
       - name: Voice samples
         if: inputs.mode == 'samples'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          python3 app/tools/generate_audio.py --engine salute --samples samples
+          python3 app/tools/generate_audio.py --engine edge --samples samples
           cat > samples-notes.md <<'NOTES'
-          Один и тот же фрагмент (Свято-Троицкий собор) каждым голосом SaluteSpeech.
+          Один и тот же фрагмент (Свято-Троицкий собор) каждым голосом Microsoft Edge.
 
           | Файл | Голос |
           |---|---|
-          | Natalya-… | Наталья (Nec_24000) |
-          | Boris-… | Борис (Bys_24000) |
-          | Marfa-… | Марфа (May_24000) |
-          | Taras-… | Тарас (Tur_24000) |
-          | Aleksandra-… | Александра (Ost_24000) |
-          | Sergey-… | Сергей (Pon_24000) |
+          | Dmitry-… | Дмитрий (ru-RU-DmitryNeural) |
+          | Svetlana-… | Светлана (ru-RU-SvetlanaNeural) |
+          | Dariya-… | Дария (ru-RU-DariyaNeural) |
 
-          `narrator` — текст рассказчика, `trosha` — реплика Троши, `trosha-higher` — она же на тон выше (1.2).
+          `narrator` — текст рассказчика. `trosha`, `trosha-higher`, `trosha-highest` — реплика Троши
+          обычным тоном, выше (+25 Гц) и ещё выше (+45 Гц), чуть быстрее обычного.
           NOTES
           gh release delete voice-samples --yes --cleanup-tag 2>/dev/null || true
           gh release create voice-samples samples/*.ogg \
             --target "$GITHUB_SHA" \
-            --title "Образцы голосов SaluteSpeech" \
+            --title "Образцы голосов для озвучки" \
             --notes-file samples-notes.md \
             --prerelease \
             --latest=false
@@ -97,7 +80,7 @@ jobs:
           TROSHA: ${{ inputs.trosha }}
           PITCH: ${{ inputs.trosha_pitch }}
         run: |
-          python3 app/tools/generate_audio.py --engine salute --narrator "$NARRATOR" --trosha "$TROSHA" --trosha-pitch "$PITCH"
+          python3 app/tools/generate_audio.py --engine edge --narrator "$NARRATOR" --trosha "$TROSHA" --trosha-pitch="$PITCH"
           git add app/src/main/assets/kids/audio
           if git diff --cached --quiet; then
             echo "Озвучка не изменилась."
@@ -105,7 +88,7 @@ jobs:
           fi
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git commit -m "Voice Malenkiy Karavan with SaluteSpeech ($NARRATOR, $TROSHA, pitch $PITCH)"
+          git commit -m "Voice Malenkiy Karavan with Edge voices ($NARRATOR, $TROSHA $PITCH)"
           git push
           # Пуш от GITHUB_TOKEN не запускает workflow, поэтому сборку APK с новой озвучкой запускаем явно.
           gh workflow run android.yml --ref "$GITHUB_REF_NAME"

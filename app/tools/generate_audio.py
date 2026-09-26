@@ -3,29 +3,24 @@
 
 Два движка:
 
-* **salute** — SaluteSpeech от Сбера: живые нейросетевые голоса. Нужен ключ авторизации
-  (Studio → проект SaluteSpeech API → «Ключ авторизации») в переменной SALUTE_AUTH_KEY.
-  Физлицам бесплатно до 200 000 символов в месяц; все тексты маршрута — около 4 000.
-  Серверы Сбера подписаны сертификатом НУЦ Минцифры: путь к нему — в SALUTE_CA_FILE.
-* **piper** — офлайн-голоса Piper «dmitri» и «denis» (лицензия CC0), ключ не нужен.
+* **edge** — нейросетевые голоса Microsoft Edge («Прочесть вслух») через edge-tts:
+  Дмитрий, Светлана, Дария. Бесплатно и без ключа, нужен интернет. Это неофициальный
+  доступ к сервису Microsoft: для бесплатного приложения подходит, для платного — рискованно.
+* **piper** — офлайн-голоса Piper «dmitri» и «denis» (лицензия CC0).
 
-    pip install soundfile numpy            # и sherpa-onnx для piper
-    python3 app/tools/generate_audio.py --engine salute --narrator Nec_24000 --trosha May_24000
-    python3 app/tools/generate_audio.py --engine salute --samples samples/   # образцы всех голосов
+    pip install edge-tts soundfile numpy   # sherpa-onnx — для piper
+    python3 app/tools/generate_audio.py --engine edge --narrator ru-RU-DmitryNeural \\
+        --trosha ru-RU-SvetlanaNeural --trosha-pitch +25Hz
+    python3 app/tools/generate_audio.py --engine edge --samples samples/   # образцы голосов
 
 Файлы пишутся в app/src/main/assets/kids/audio/*.ogg (Ogg Vorbis, моно).
 В GitHub Actions это делает workflow «Voice» (.github/workflows/voice.yml).
 """
 import argparse
-import io
 import json
-import os
 import pathlib
-import ssl
 import tarfile
-import urllib.parse
 import urllib.request
-import uuid
 
 import numpy as np
 import soundfile as sf
@@ -68,63 +63,29 @@ def piper_say(text, voice, speed):
     return np.asarray(audio.samples, dtype=np.float32), audio.sample_rate
 
 
-# --- SaluteSpeech ------------------------------------------------------------------------
+# --- Microsoft Edge ----------------------------------------------------------------------
 
-SALUTE_OAUTH = "https://ngw.devices.sberbank.ru:9443/api/v2/oauth"
-SALUTE_SYNTH = "https://smartspeech.sber.ru/rest/v1/text:synthesize"
-# Голос → (имя, латиницей для имён файлов: GitHub портит кириллицу в именах вложений релиза).
-SALUTE_VOICES = {
-    "Nec_24000": ("Наталья", "Natalya"),
-    "Bys_24000": ("Борис", "Boris"),
-    "May_24000": ("Марфа", "Marfa"),
-    "Tur_24000": ("Тарас", "Taras"),
-    "Ost_24000": ("Александра", "Aleksandra"),
-    "Pon_24000": ("Сергей", "Sergey"),
+# Голоса «Прочесть вслух» из Microsoft Edge через библиотеку edge-tts: ключ не нужен.
+EDGE_VOICES = {
+    "ru-RU-DmitryNeural": ("Дмитрий", "Dmitry"),
+    "ru-RU-SvetlanaNeural": ("Светлана", "Svetlana"),
+    "ru-RU-DariyaNeural": ("Дария", "Dariya"),
 }
-_salute = {}
 
 
-def salute_context():
-    context = ssl.create_default_context()
-    ca = os.environ.get("SALUTE_CA_FILE")
-    if ca:
-        context.load_verify_locations(cafile=ca)
-    return context
+def edge_say(text, voice, rate="+0%", pitch="+0Hz"):
+    import asyncio
+    import tempfile
 
+    import edge_tts
 
-def salute_token():
-    if "token" not in _salute:
-        key = os.environ.get("SALUTE_AUTH_KEY", "").strip()
-        if not key:
-            raise SystemExit("Нет ключа SaluteSpeech: задайте переменную SALUTE_AUTH_KEY")
-        request = urllib.request.Request(
-            SALUTE_OAUTH,
-            data=urllib.parse.urlencode({"scope": os.environ.get("SALUTE_SCOPE", "SALUTE_SPEECH_PERS")}).encode(),
-            headers={
-                "Authorization": f"Basic {key}",
-                "RqUID": str(uuid.uuid4()),
-                "Content-Type": "application/x-www-form-urlencoded",
-                "Accept": "application/json",
-            },
-        )
-        with urllib.request.urlopen(request, timeout=30, context=salute_context()) as response:
-            _salute["token"] = json.load(response)["access_token"]
-    return _salute["token"]
-
-
-def salute_say(text, voice):
-    query = urllib.parse.urlencode({"format": "wav16", "voice": voice})
-    request = urllib.request.Request(
-        f"{SALUTE_SYNTH}?{query}",
-        data=text.encode("utf-8"),
-        headers={"Authorization": f"Bearer {salute_token()}", "Content-Type": "application/text"},
-    )
-    with urllib.request.urlopen(request, timeout=60, context=salute_context()) as response:
-        data = response.read()
-    samples, rate = sf.read(io.BytesIO(data), dtype="float32")
+    with tempfile.TemporaryDirectory() as tmp:
+        mp3 = pathlib.Path(tmp) / "speech.mp3"
+        asyncio.run(edge_tts.Communicate(text, voice, rate=rate, pitch=pitch).save(str(mp3)))
+        samples, rate_hz = sf.read(mp3, dtype="float32")
     if samples.ndim > 1:
         samples = samples.mean(axis=1)
-    return samples, rate
+    return samples, rate_hz
 
 
 # --- Общее -------------------------------------------------------------------------------
@@ -151,17 +112,16 @@ class Voices:
 
     def narrator(self, text):
         a = self.args
-        if a.engine == "salute":
-            return salute_say(text, a.narrator)
+        if a.engine == "edge":
+            return edge_say(text, a.narrator, rate=a.narrator_rate)
         return piper_say(text, a.narrator or "dmitri", speed=0.9)
 
     def trosha(self, text):
         a = self.args
-        if a.engine == "salute":
-            samples, rate = salute_say(text, a.trosha)
-            return pitch_up(samples, a.trosha_pitch), rate
+        if a.engine == "edge":
+            return edge_say(text, a.trosha, rate=a.trosha_rate, pitch=a.trosha_pitch)
         # У Piper нет детского голоса: взрослый голос заранее замедляется и поднимается в тоне.
-        pitch = a.trosha_pitch if a.trosha_pitch != 1.0 else 1.35
+        pitch = 1.35
         samples, rate = piper_say(text, a.trosha or "denis", speed=1.0 / pitch)
         return pitch_up(samples, pitch), rate
 
@@ -199,27 +159,29 @@ def generate_all(route, voices):
 
 
 def generate_samples(route, out):
-    """Один и тот же фрагмент каждым голосом SaluteSpeech — чтобы выбрать на слух."""
+    """Один и тот же фрагмент разными голосами Edge — чтобы выбрать на слух."""
     out.mkdir(parents=True, exist_ok=True)
     stop = route["stops"][1]
-    for voice, (_, latin) in SALUTE_VOICES.items():
-        write(out / f"{latin}-narrator.ogg", *salute_say(stop["narrator"], voice))
-        samples, rate = salute_say(stop["trosha"], voice)
-        write(out / f"{latin}-trosha.ogg", samples, rate)
-        write(out / f"{latin}-trosha-higher.ogg", pitch_up(samples, 1.2), rate)
+    for voice, (_, latin) in EDGE_VOICES.items():
+        write(out / f"{latin}-narrator.ogg", *edge_say(stop["narrator"], voice, rate="-5%"))
+        # Троша — детский голос: тот же голос выше и чуть быстрее.
+        for label, pitch in (("trosha", "+0Hz"), ("trosha-higher", "+25Hz"), ("trosha-highest", "+45Hz")):
+            write(out / f"{latin}-{label}.ogg", *edge_say(stop["trosha"], voice, rate="+8%", pitch=pitch))
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--engine", choices=["piper", "salute"], default="piper")
-    parser.add_argument("--narrator", help="голос рассказчика (salute: Nec_24000; piper: dmitri)")
-    parser.add_argument("--trosha", help="голос Троши (salute: May_24000; piper: denis)")
-    parser.add_argument("--trosha-pitch", type=float, default=1.0, help="поднять тон Троши, например 1.2")
-    parser.add_argument("--samples", type=pathlib.Path, help="вместо озвучки — образцы всех голосов SaluteSpeech в эту папку")
+    parser.add_argument("--engine", choices=["piper", "edge"], default="piper")
+    parser.add_argument("--narrator", help="голос рассказчика (edge: ru-RU-DmitryNeural; piper: dmitri)")
+    parser.add_argument("--narrator-rate", default="-5%", help="edge: скорость рассказчика, например -5%%")
+    parser.add_argument("--trosha", help="голос Троши (edge: ru-RU-SvetlanaNeural; piper: denis)")
+    parser.add_argument("--trosha-rate", default="+8%", help="edge: скорость Троши")
+    parser.add_argument("--trosha-pitch", default="+25Hz", help="edge: тон Троши, например +25Hz")
+    parser.add_argument("--samples", type=pathlib.Path, help="вместо озвучки — образцы голосов Edge в эту папку")
     args = parser.parse_args()
-    if args.engine == "salute":
-        args.narrator = args.narrator or "Nec_24000"
-        args.trosha = args.trosha or "May_24000"
+    if args.engine == "edge":
+        args.narrator = args.narrator or "ru-RU-DmitryNeural"
+        args.trosha = args.trosha or "ru-RU-SvetlanaNeural"
     route = json.loads(ROUTE.read_text(encoding="utf-8"))
     if args.samples:
         generate_samples(route, args.samples)
