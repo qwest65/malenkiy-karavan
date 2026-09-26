@@ -76,7 +76,7 @@
 | UI | Jetpack Compose, Material 3 |
 | Карта | [MapLibre Native](https://maplibre.org/) (`android-sdk-opengl`), подложка [OpenFreeMap](https://openfreemap.org/), данные © OpenStreetMap |
 | Пешеходные маршруты | [OSRM](https://project-osrm.org/), профиль foot |
-| Озвучка | заранее записанные Ogg Vorbis, голоса [Piper](https://github.com/rhasspy/piper) «dmitri» и «denis» (CC0) |
+| Озвучка | заранее записанные Ogg Vorbis: [SaluteSpeech](https://developers.sber.ru/docs/ru/salutespeech/overview) или офлайн-голоса [Piper](https://github.com/rhasspy/piper) (CC0) |
 | Хранение | SQLite (каталог мест), SharedPreferences (прогресс и альбом), фото и коллаж — во внутренней памяти приложения |
 | Сборка | Gradle 8.9 (wrapper), Android Gradle Plugin 8.7, JDK 17 |
 | CI/CD | GitHub Actions → GitHub Releases |
@@ -126,13 +126,20 @@ cd malenkiy-karavan
 
 ## Как поменять тексты и маршрут
 
-- **Тексты, вопросы, игры и подсказки** — в [`app/src/main/assets/kids/route.json`](app/src/main/assets/kids/route.json). После правки заново озвучьте их:
-  ```bash
-  pip install sherpa-onnx soundfile numpy
-  python3 app/tools/generate_audio.py
-  ```
+- **Тексты, вопросы, игры и подсказки** — в [`app/src/main/assets/kids/route.json`](app/src/main/assets/kids/route.json). После правки заново озвучьте их (см. «Озвучка» ниже).
 - **Точки маршрута** ссылаются на места из [`core/src/main/assets/catalog.json`](core/src/main/assets/catalog.json) по `place_id`. После изменения точек или каталога workflow [`kids-paths.yml`](.github/workflows/kids-paths.yml) сам перестроит пешеходные линии, закоммитит их и пересоберёт APK. Вручную: `python3 app/tools/build_paths.py`.
 - **Картинки** — `app/src/main/assets/kids/stickers/*.webp`. Наклейки новых мест (`blanket`, `whistle`, `book`, `key`) пока временные — их можно заменить картинками в общем стиле.
+
+## Озвучка
+
+Голоса делает [SaluteSpeech](https://developers.sber.ru/docs/ru/salutespeech/overview) (Сбер): физлицам бесплатно до 200 000 символов в месяц, а все тексты маршрута — около 4 000. Скрипт — [`app/tools/generate_audio.py`](app/tools/generate_audio.py), запуск — workflow [`voice.yml`](.github/workflows/voice.yml): **Actions → Voice → Run workflow**.
+
+1. В [Studio](https://developers.sber.ru/studio) создайте проект SaluteSpeech API и скопируйте «Ключ авторизации».
+2. Добавьте его в секрет репозитория `SALUTE_AUTH_KEY`: **Settings → Secrets and variables → Actions → New repository secret**.
+3. Режим `samples` публикует образцы всех голосов в пред-релиз [`voice-samples`](https://github.com/qwest65/malenkiy-karavan/releases/tag/voice-samples) — их можно послушать в браузере.
+4. Режим `all` переозвучивает всё приложение выбранными голосами (рассказчик, Троша, тон Троши), коммитит файлы в ветку, на которой запущен, и собирает APK.
+
+Без ключа можно озвучить офлайн-голосами Piper: `pip install sherpa-onnx soundfile numpy && python3 app/tools/generate_audio.py`.
 
 ## Релизы и CI/CD
 
@@ -149,7 +156,6 @@ Workflow [`.github/workflows/android.yml`](.github/workflows/android.yml) зап
 
 ## Дорожная карта
 
-- [ ] Живой голос рассказчика и Троши
 - [ ] Офлайн-карта Троицка внутри приложения
 - [ ] Предупреждения о переходе дороги на реальных перекрёстках
 - [ ] Новые маршруты и города

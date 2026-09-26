@@ -1,0 +1,111 @@
+name: Voice
+
+# Озвучка через SaluteSpeech. Запускается вручную: Actions → Voice → Run workflow.
+# Нужен секрет репозитория SALUTE_AUTH_KEY — «Ключ авторизации» проекта SaluteSpeech API в Studio.
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: "samples — образцы всех голосов в релиз voice-samples; all — переозвучить приложение"
+        type: choice
+        options: ["samples", "all"]
+        default: "samples"
+      narrator:
+        description: "Голос рассказчика"
+        type: choice
+        options: ["Nec_24000", "Bys_24000", "May_24000", "Tur_24000", "Ost_24000", "Pon_24000"]
+        default: "Nec_24000"
+      trosha:
+        description: "Голос Троши"
+        type: choice
+        options: ["May_24000", "Nec_24000", "Ost_24000", "Bys_24000", "Tur_24000", "Pon_24000"]
+        default: "May_24000"
+      trosha_pitch:
+        description: "Поднять тон Троши (1.0 — как есть, 1.2 — выше и чуть быстрее)"
+        default: "1.0"
+
+permissions:
+  contents: write
+  actions: write
+
+concurrency:
+  group: voice-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  voice:
+    runs-on: ubuntu-latest
+    env:
+      SALUTE_AUTH_KEY: ${{ secrets.SALUTE_AUTH_KEY }}
+      SALUTE_CA_FILE: ${{ github.workspace }}/russian-ca.pem
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Check key
+        run: |
+          if [ -z "$SALUTE_AUTH_KEY" ]; then
+            echo "::error::Добавьте секрет SALUTE_AUTH_KEY: Settings → Secrets and variables → Actions."
+            exit 1
+          fi
+
+      - name: Russian trusted CA
+        # Серверы SaluteSpeech подписаны сертификатами НУЦ Минцифры, которых нет в системном хранилище.
+        run: |
+          curl -fsSL https://gu-st.ru/content/lending/russian_trusted_root_ca_pem.crt > russian-ca.pem
+          curl -fsSL https://gu-st.ru/content/lending/russian_trusted_sub_ca_pem.crt >> russian-ca.pem
+          grep -c "BEGIN CERTIFICATE" russian-ca.pem
+
+      - run: pip install soundfile numpy
+
+      - name: Voice samples
+        if: inputs.mode == 'samples'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python3 app/tools/generate_audio.py --engine salute --samples samples
+          cat > samples-notes.md <<'NOTES'
+          Один и тот же фрагмент (Свято-Троицкий собор) каждым голосом SaluteSpeech.
+
+          | Файл | Голос |
+          |---|---|
+          | Natalya-… | Наталья (Nec_24000) |
+          | Boris-… | Борис (Bys_24000) |
+          | Marfa-… | Марфа (May_24000) |
+          | Taras-… | Тарас (Tur_24000) |
+          | Aleksandra-… | Александра (Ost_24000) |
+          | Sergey-… | Сергей (Pon_24000) |
+
+          `narrator` — текст рассказчика, `trosha` — реплика Троши, `trosha-higher` — она же на тон выше (1.2).
+          NOTES
+          gh release delete voice-samples --yes --cleanup-tag 2>/dev/null || true
+          gh release create voice-samples samples/*.ogg \
+            --target "$GITHUB_SHA" \
+            --title "Образцы голосов SaluteSpeech" \
+            --notes-file samples-notes.md \
+            --prerelease \
+            --latest=false
+
+      - name: Voice the whole app
+        if: inputs.mode == 'all'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          NARRATOR: ${{ inputs.narrator }}
+          TROSHA: ${{ inputs.trosha }}
+          PITCH: ${{ inputs.trosha_pitch }}
+        run: |
+          python3 app/tools/generate_audio.py --engine salute --narrator "$NARRATOR" --trosha "$TROSHA" --trosha-pitch "$PITCH"
+          git add app/src/main/assets/kids/audio
+          if git diff --cached --quiet; then
+            echo "Озвучка не изменилась."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "Voice Malenkiy Karavan with SaluteSpeech ($NARRATOR, $TROSHA, pitch $PITCH)"
+          git push
+          # Пуш от GITHUB_TOKEN не запускает workflow, поэтому сборку APK с новой озвучкой запускаем явно.
+          gh workflow run android.yml --ref "$GITHUB_REF_NAME"
