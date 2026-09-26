@@ -4,7 +4,7 @@
 Два движка:
 
 * **edge** — нейросетевые голоса Microsoft Edge («Прочесть вслух») через edge-tts:
-  Дмитрий, Светлана, Дария. Бесплатно и без ключа, нужен интернет. Это неофициальный
+  Дмитрий и Светлана. Бесплатно и без ключа, нужен интернет. Это неофициальный
   доступ к сервису Microsoft: для бесплатного приложения подходит, для платного — рискованно.
 * **piper** — офлайн-голоса Piper «dmitri» и «denis» (лицензия CC0).
 
@@ -19,6 +19,7 @@
 import argparse
 import json
 import pathlib
+import re
 import tarfile
 import urllib.request
 
@@ -27,6 +28,7 @@ import soundfile as sf
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 ROUTE = ROOT / "src/main/assets/kids/route.json"
+CATALOG = ROOT.parent / "core/src/main/assets/catalog.json"
 AUDIO = ROOT / "src/main/assets/kids/audio"
 
 # --- Piper -------------------------------------------------------------------------------
@@ -69,19 +71,30 @@ def piper_say(text, voice, speed):
 EDGE_VOICES = {
     "ru-RU-DmitryNeural": ("Дмитрий", "Dmitry"),
     "ru-RU-SvetlanaNeural": ("Светлана", "Svetlana"),
-    "ru-RU-DariyaNeural": ("Дария", "Dariya"),
 }
 
 
-def edge_say(text, voice, rate="+0%", pitch="+0Hz"):
+def edge_say(text, voice, rate="+0%", pitch="+0Hz", attempts=4):
     import asyncio
     import tempfile
+    import time
 
     import edge_tts
 
+    # Многоточие и длинные тире сервис иногда не озвучивает — заменяем на обычную пунктуацию.
+    text = text.replace("…", ".").replace("—", ",")
     with tempfile.TemporaryDirectory() as tmp:
         mp3 = pathlib.Path(tmp) / "speech.mp3"
-        asyncio.run(edge_tts.Communicate(text, voice, rate=rate, pitch=pitch).save(str(mp3)))
+        for attempt in range(attempts):
+            try:
+                asyncio.run(edge_tts.Communicate(text, voice, rate=rate, pitch=pitch).save(str(mp3)))
+                break
+            except edge_tts.exceptions.EdgeTTSException as error:
+                # Сервис Microsoft иногда отвечает пустым потоком — пробуем ещё раз с паузой.
+                if attempt == attempts - 1:
+                    raise
+                print(f"  повтор после ошибки: {error}")
+                time.sleep(3 * (attempt + 1))
         samples, rate_hz = sf.read(mp3, dtype="float32")
     if samples.ndim > 1:
         samples = samples.mean(axis=1)
@@ -89,6 +102,65 @@ def edge_say(text, voice, rate="+0%", pitch="+0Hz"):
 
 
 # --- Общее -------------------------------------------------------------------------------
+
+# Ударения, которые синтезатор ставит неверно. Знак ударения (U+0301) добавляется только
+# в озвучиваемый текст — на экране слова остаются без него.
+# Римские века синтезатор читает как «восемнадцать веке» — заменяем словами.
+SPOKEN = {
+    "XVIII–XIX веках": "восемнадцатом и девятнадцатом веках",
+    "XVIII веке": "восемнадцатом веке",
+    "XIX веке": "девятнадцатом веке",
+    "XIX века": "девятнадцатого века",
+    "XX века": "двадцатого века",
+}
+
+STRESS = {
+    # «Две реки́»: одного знака ударения синтезатору мало, поэтому пишем как слышится.
+    r"реки": "рики́",
+    r"города": "го́рода",
+    r"двадцатого": "двадца́того",
+    r"Троицкой": "Тро́йцкой",
+    r"гербе": "ге́рбе",
+    r"Троицк(\w*)": "Тро́ицк\\1",
+    r"казаки": "казаки́",
+    r"сыром": "сы́ром",
+    r"ворону": "воро́ну",
+}
+
+
+def with_stress(text):
+    for written, spoken in SPOKEN.items():
+        text = text.replace(written, spoken)
+    for word, spoken in STRESS.items():
+        pattern = re.compile(rf"\b{word}\b", re.IGNORECASE)
+
+        def keep_case(match, spoken=spoken, pattern=pattern):
+            out = pattern.sub(spoken, match.group(0).lower())
+            return out[0].upper() + out[1:] if match.group(0)[0].isupper() else out
+
+        text = pattern.sub(keep_case, text)
+    return text
+
+
+def tighten(samples, rate, keep=0.25, frame=0.02, threshold_db=-40):
+    """Обрезает тишину по краям и укорачивает длинные паузы внутри до [keep] секунд."""
+    step = int(rate * frame)
+    frames = len(samples) // step
+    if frames == 0:
+        return samples
+    energy = np.sqrt(np.mean(samples[: frames * step].reshape(frames, step) ** 2, axis=1))
+    loud = energy > max(float(energy.max()), 1e-6) * 10 ** (threshold_db / 20)
+    if not loud.any():
+        return samples
+    first, last = int(np.argmax(loud)), frames - int(np.argmax(loud[::-1]))
+    keep_frames = int(keep / frame)
+    parts, quiet = [], 0
+    for i in range(first, last):
+        quiet = 0 if loud[i] else quiet + 1
+        if quiet <= keep_frames:
+            parts.append(samples[i * step:(i + 1) * step])
+    return np.concatenate(parts)
+
 
 
 def pitch_up(samples, factor):
@@ -98,10 +170,12 @@ def pitch_up(samples, factor):
     return np.interp(np.arange(0, len(samples) - 1, factor), np.arange(len(samples)), samples).astype(np.float32)
 
 
-def write(path, samples, rate):
+def write(path, samples, rate, tail=0.05):
+    samples = tighten(samples, rate)
     peak = max(float(np.abs(samples).max()), 1e-6)
-    pad = np.zeros(int(rate * 0.15), dtype=np.float32)
-    data = np.concatenate([pad, samples / peak * 0.9, pad])
+    pad = np.zeros(int(rate * 0.05), dtype=np.float32)
+    # Тишина в конце фразы — пауза перед следующим фрагментом (рассказчик → Троша → вопрос).
+    data = np.concatenate([pad, samples / peak * 0.9, np.zeros(int(rate * tail), dtype=np.float32)])
     sf.write(path, data, rate, format="OGG", subtype="VORBIS")
     print(f"{path.name}  {len(data) / rate:.1f} с")
 
@@ -113,13 +187,13 @@ class Voices:
     def narrator(self, text):
         a = self.args
         if a.engine == "edge":
-            return edge_say(text, a.narrator, rate=a.narrator_rate)
+            return edge_say(with_stress(text), a.narrator, rate=a.narrator_rate)
         return piper_say(text, a.narrator or "dmitri", speed=0.9)
 
     def trosha(self, text):
         a = self.args
         if a.engine == "edge":
-            return edge_say(text, a.trosha, rate=a.trosha_rate, pitch=a.trosha_pitch)
+            return edge_say(with_stress(text), a.trosha, rate=a.trosha_rate, pitch=a.trosha_pitch)
         # У Piper нет детского голоса: взрослый голос заранее замедляется и поднимается в тоне.
         pitch = 1.35
         samples, rate = piper_say(text, a.trosha or "denis", speed=1.0 / pitch)
@@ -138,14 +212,17 @@ def bell(rate=22050):
     write(AUDIO / "bell.ogg", out, rate)
 
 
-def generate_all(route, voices):
+PAUSE = 0.6
+
+
+def generate_all(route, catalog, voices):
     AUDIO.mkdir(parents=True, exist_ok=True)
 
     def trosha(name, text):
-        write(AUDIO / f"{name}.ogg", *voices.trosha(text))
+        write(AUDIO / f"{name}.ogg", *voices.trosha(text), tail=PAUSE)
 
     def narrator(name, text):
-        write(AUDIO / f"{name}.ogg", *voices.narrator(text))
+        write(AUDIO / f"{name}.ogg", *voices.narrator(text), tail=PAUSE)
 
     trosha("intro_trosha", route["intro"]["trosha"])
     trosha("finale_trosha", route["finale"]["trosha"])
@@ -155,6 +232,9 @@ def generate_all(route, voices):
         narrator(f"stop{n}_narrator", stop["narrator"])
         trosha(f"stop{n}_trosha", stop["trosha"])
         narrator(f"stop{n}_task", stop["question"]["voice"])
+        # «Подробная история голосом» для взрослых: справка из общего каталога мест.
+        place = catalog[stop["place_id"]]
+        narrator(f"stop{n}_parent", f"{place['name']}. {place['description']}".replace("\n", " "))
     bell()
 
 
@@ -173,9 +253,9 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--engine", choices=["piper", "edge"], default="piper")
     parser.add_argument("--narrator", help="голос рассказчика (edge: ru-RU-DmitryNeural; piper: dmitri)")
-    parser.add_argument("--narrator-rate", default="-5%", help="edge: скорость рассказчика, например -5%%")
+    parser.add_argument("--narrator-rate", default="+0%", help="edge: скорость рассказчика, например -5%%")
     parser.add_argument("--trosha", help="голос Троши (edge: ru-RU-SvetlanaNeural; piper: denis)")
-    parser.add_argument("--trosha-rate", default="+8%", help="edge: скорость Троши")
+    parser.add_argument("--trosha-rate", default="+10%", help="edge: скорость Троши")
     parser.add_argument("--trosha-pitch", default="+25Hz", help="edge: тон Троши, например +25Hz")
     parser.add_argument("--samples", type=pathlib.Path, help="вместо озвучки — образцы голосов Edge в эту папку")
     args = parser.parse_args()
@@ -186,7 +266,8 @@ def main():
     if args.samples:
         generate_samples(route, args.samples)
     else:
-        generate_all(route, Voices(args))
+        catalog = {p["id"]: p for p in json.loads(CATALOG.read_text(encoding="utf-8"))["places"]}
+        generate_all(route, catalog, Voices(args))
 
 
 if __name__ == "__main__":

@@ -6,7 +6,15 @@ import android.graphics.BitmapFactory
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
+import android.graphics.Path
 import android.graphics.Typeface
+import android.os.Handler
+import android.os.Looper
+import android.os.SystemClock
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
+import org.maplibre.android.camera.CameraPosition
 import org.maplibre.android.camera.CameraUpdateFactory
 import org.maplibre.android.geometry.LatLng
 import org.maplibre.android.geometry.LatLngBounds
@@ -25,6 +33,9 @@ import org.maplibre.android.style.layers.PropertyFactory.circleStrokeWidth
 import org.maplibre.android.style.layers.PropertyFactory.iconAllowOverlap
 import org.maplibre.android.style.layers.PropertyFactory.iconIgnorePlacement
 import org.maplibre.android.style.layers.PropertyFactory.iconImage
+import org.maplibre.android.style.layers.PropertyFactory.iconPitchAlignment
+import org.maplibre.android.style.layers.PropertyFactory.iconRotate
+import org.maplibre.android.style.layers.PropertyFactory.iconRotationAlignment
 import org.maplibre.android.style.layers.PropertyFactory.iconSize
 import org.maplibre.android.style.layers.PropertyFactory.lineCap
 import org.maplibre.android.style.layers.PropertyFactory.lineColor
@@ -52,6 +63,11 @@ import ru.cultureguide.navigation.LocationFix
  * или идём к первой точке, от нас к цели тянется синий пунктир — по улицам, если удалось
  * получить маршрут (см. [ApproachRouter]), иначе по прямой. Найденные вещи показываются
  * наклейками, ненайденные — знаком вопроса.
+ *
+ * Как в навигаторе, карта по умолчанию следует за нами ([following]): мы в центре,
+ * карта повёрнута туда, куда идём, а наше место показано стрелкой. Стоит сдвинуть карту
+ * пальцем — слежение выключается и само возвращается через [RESUME_FOLLOW_MS] после того,
+ * как карту отпустили; кнопка 🧭 ([follow]) возвращает его сразу.
  * Без интернета подложка заменяется однотонным фоном, а маршрут и точки остаются на месте.
  */
 class KaravanMap(
@@ -66,6 +82,14 @@ class KaravanMap(
     private var journey: Journey? = null
     private var me: LocationFix? = null
     private var approach: List<GeoPoint>? = null
+    private var heading: Double? = null
+    private var lastCameraAtMs = 0L
+    private val main = Handler(Looper.getMainLooper())
+    private val resumeFollow = Runnable { follow() }
+
+    /** Карта следует за нами и поворачивается по направлению движения. */
+    var following by mutableStateOf(true)
+        private set
     private var fitted = false
     private var offline = false
 
@@ -78,8 +102,21 @@ class KaravanMap(
         }
         view.getMapAsync { m ->
             map = m
+            m.addOnCameraMoveStartedListener { reason ->
+                if (reason == MapLibreMap.OnCameraMoveStartedListener.REASON_API_GESTURE) {
+                    following = false
+                    main.removeCallbacks(resumeFollow)
+                }
+            }
+            // Карту отпустили — через несколько секунд она сама вернётся к нам.
+            m.addOnCameraIdleListener {
+                if (!following) {
+                    main.removeCallbacks(resumeFollow)
+                    main.postDelayed(resumeFollow, RESUME_FOLLOW_MS)
+                }
+            }
             m.uiSettings.apply {
-                isRotateGesturesEnabled = false
+                isRotateGesturesEnabled = true
                 isTiltGesturesEnabled = false
                 isCompassEnabled = false
                 isLogoEnabled = false
@@ -89,6 +126,7 @@ class KaravanMap(
     }
 
     fun detach() {
+        main.removeCallbacks(resumeFollow)
         map = null
         style = null
         fitted = false
@@ -101,15 +139,50 @@ class KaravanMap(
         render()
     }
 
-    /** Показать весь маршрут вместе с текущей позицией. */
-    fun fitAll() {
+    fun setHeading(value: Double) {
+        heading = value
+        renderMe()
+        if (following) followCamera(animate = true)
+    }
+
+    /** Кнопка 🧭: снова вести за собой. */
+    fun follow() {
+        main.removeCallbacks(resumeFollow)
+        following = true
+        followCamera(animate = true, force = true)
+    }
+
+    /** Кнопка ⤢: весь маршрут целиком, карта перестаёт следовать за нами. */
+    fun showAll() {
+        following = false
+        fitAll()
+    }
+
+    private fun followCamera(animate: Boolean, force: Boolean = false) {
+        val m = map ?: return
+        val here = me ?: return
+        val now = SystemClock.elapsedRealtime()
+        if (!force && now - lastCameraAtMs < CAMERA_INTERVAL_MS) return
+        lastCameraAtMs = now
+        val position = CameraPosition.Builder()
+            .target(LatLng(here.lat, here.lon))
+            .zoom(FOLLOW_ZOOM)
+            .bearing(heading ?: m.cameraPosition.bearing)
+            .tilt(FOLLOW_TILT)
+            .build()
+        val update = CameraUpdateFactory.newCameraPosition(position)
+        if (animate) m.easeCamera(update, CAMERA_INTERVAL_MS.toInt()) else m.moveCamera(update)
+    }
+
+    /** Показать весь маршрут вместе с текущей позицией, севером вверх. */
+    private fun fitAll() {
         val m = map ?: return
         val plan = journey?.plan.orEmpty()
         val points = plan.map { LatLng(places[it].lat, places[it].lon) } +
             legs(plan).flatten().map { LatLng(it.lat, it.lon) } +
             listOfNotNull(me?.let { LatLng(it.lat, it.lon) })
         if (points.size < 2) return
-        m.animateCamera(CameraUpdateFactory.newLatLngBounds(LatLngBounds.Builder().includes(points).build(), FIT_PADDING_PX))
+        m.animateCamera(CameraUpdateFactory.newLatLngBounds(LatLngBounds.Builder().includes(points).build(), 0.0, 0.0, FIT_PADDING_PX))
     }
 
     private fun onStyle(loaded: Style) {
@@ -155,7 +228,19 @@ class KaravanMap(
             )
         )
         loaded.addLayer(
-            CircleLayer(LAYER_ME, SRC_ME).withProperties(
+            SymbolLayer(LAYER_ME_ARROW, SRC_ME)
+                .withFilter(Expression.has(PROP_BEARING))
+                .withProperties(
+                    iconImage(IMG_ARROW),
+                    iconRotate(Expression.get(PROP_BEARING)),
+                    iconRotationAlignment(Property.ICON_ROTATION_ALIGNMENT_MAP),
+                    iconPitchAlignment(Property.ICON_PITCH_ALIGNMENT_MAP),
+                    iconAllowOverlap(true),
+                    iconIgnorePlacement(true)
+                )
+        )
+        loaded.addLayer(
+            CircleLayer(LAYER_ME, SRC_ME).withFilter(Expression.not(Expression.has(PROP_BEARING))).withProperties(
                 circleRadius(8f),
                 circleColor(ME_COLOR),
                 circleStrokeColor(Color.WHITE),
@@ -208,16 +293,30 @@ class KaravanMap(
                 }
             )
         )
+        renderMe()
+        if (!fitted) {
+            fitted = true
+            if (following && me != null) followCamera(animate = false, force = true) else fitAll()
+        } else if (following) {
+            followCamera(animate = true)
+        }
+    }
+
+    /** Наше место: стрелка, если известно направление, иначе кружок. */
+    private fun renderMe() {
+        val s = style ?: return
         val here = me
         s.getSourceAs<GeoJsonSource>(SRC_ME)?.setGeoJson(
             FeatureCollection.fromFeatures(
-                listOfNotNull(here?.let { Feature.fromGeometry(Point.fromLngLat(it.lon, it.lat)) })
+                listOfNotNull(
+                    here?.let {
+                        Feature.fromGeometry(Point.fromLngLat(it.lon, it.lat)).apply {
+                            heading?.let { h -> addNumberProperty(PROP_BEARING, h) }
+                        }
+                    }
+                )
             )
         )
-        if (!fitted) {
-            fitted = true
-            fitAll()
-        }
     }
 
     /** Линии между соседними точками прогулки; без пешеходной линии — прямая. */
@@ -235,6 +334,31 @@ class KaravanMap(
             }.getOrNull()?.let { s.addImage(stickerImage(name), scaled(it, ICON_PX)) }
         }
         s.addImage(IMG_MYSTERY, mysteryIcon(ICON_PX))
+        s.addImage(IMG_ARROW, arrowIcon(ARROW_PX))
+    }
+
+    /** Стрелка «я иду сюда», как в навигаторе. */
+    private fun arrowIcon(size: Int): Bitmap {
+        val bitmap = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
+        val canvas = Canvas(bitmap)
+        val s = size.toFloat()
+        val path = Path().apply {
+            moveTo(s * 0.5f, s * 0.1f)
+            lineTo(s * 0.86f, s * 0.88f)
+            lineTo(s * 0.5f, s * 0.7f)
+            lineTo(s * 0.14f, s * 0.88f)
+            close()
+        }
+        val paint = Paint(Paint.ANTI_ALIAS_FLAG)
+        paint.style = Paint.Style.FILL
+        paint.color = ME_COLOR
+        canvas.drawPath(path, paint)
+        paint.style = Paint.Style.STROKE
+        paint.strokeWidth = s * 0.07f
+        paint.strokeJoin = Paint.Join.ROUND
+        paint.color = Color.WHITE
+        canvas.drawPath(path, paint)
+        return bitmap
     }
 
     private fun scaled(bitmap: Bitmap, maxSide: Int): Bitmap {
@@ -278,6 +402,14 @@ class KaravanMap(
         const val LAYER_STOPS = "karavan-stops-icons"
         const val LAYER_ME = "karavan-me-dot"
         const val LAYER_ME_HALO = "karavan-me-halo"
+        const val LAYER_ME_ARROW = "karavan-me-arrow"
+        const val PROP_BEARING = "bearing"
+        const val IMG_ARROW = "me-arrow"
+        const val ARROW_PX = 84
+        const val FOLLOW_ZOOM = 17.5
+        const val FOLLOW_TILT = 40.0
+        const val CAMERA_INTERVAL_MS = 300L
+        const val RESUME_FOLLOW_MS = 5_000L
         const val PROP_ICON = "icon"
         const val PROP_SIZE = "size"
         const val PROP_STATE = "state"

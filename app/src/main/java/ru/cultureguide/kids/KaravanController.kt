@@ -7,15 +7,18 @@ import android.os.SystemClock
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
-import ru.cultureguide.audio.AudioGuide
 import ru.cultureguide.kids.audio.ClipPlayer
 import ru.cultureguide.kids.content.Clips
+import ru.cultureguide.kids.content.HeadingFusion
+import ru.cultureguide.kids.content.Instruction
 import ru.cultureguide.kids.content.Journey
 import ru.cultureguide.kids.content.KidsRoute
 import ru.cultureguide.kids.content.ON_PATH_METERS
 import ru.cultureguide.kids.content.Reroute
 import ru.cultureguide.kids.content.RoutePaths
 import ru.cultureguide.kids.content.WalkPath
+import ru.cultureguide.kids.content.angleDelta
+import ru.cultureguide.kids.content.instruction as nextInstruction
 import ru.cultureguide.kids.content.walkingMeters
 import ru.cultureguide.kids.map.ApproachRouter
 import ru.cultureguide.kids.photo.Collage
@@ -25,6 +28,7 @@ import ru.cultureguide.model.Place
 import ru.cultureguide.navigation.GeoPoint
 import ru.cultureguide.navigation.GuidanceEngine
 import ru.cultureguide.navigation.LocationFix
+import kotlin.math.abs
 
 enum class Screen { Home, Choose, Walk, Stop, Finale, Album }
 
@@ -48,7 +52,6 @@ class KaravanController(
     /** Пешеходные линии между точками; без них расстояние считается по прямой. */
     val paths: RoutePaths,
     val player: ClipPlayer,
-    private val audioGuide: AudioGuide,
     private val router: ApproachRouter,
     /** Фото на память с точек и коллаж из них. */
     val photos: PhotoStore
@@ -81,12 +84,34 @@ class KaravanController(
     var approachLine by mutableStateOf<List<GeoPoint>?>(null)
         private set
 
+    /** Ближайший поворот на пути к точке; null — пути по улицам нет, идём по прямой. */
+    var instruction by mutableStateOf<Instruction?>(null)
+        private set
+    /** Куда смотрит телефон, градусы от севера; null — пока неизвестно. */
+    var heading by mutableStateOf<Double?>(null)
+        private set
+    /** Карта поворачивается за направлением сразу, без перерисовки экранов. */
+    var onHeading: ((Double) -> Unit)? = null
+
+    /** Точка уже рядом: линия тут мало помогает из-за погрешности GPS, показываем стрелку на точку. */
+    val nearTarget: Boolean get() = (distanceToTarget ?: Double.MAX_VALUE) <= NEAR_METERS
+
+    /** Текущая цель прогулки на карте. */
+    val targetPoint: GeoPoint? get() = journey.activeStop?.let { points[it] }
+
+    private val headingFusion = HeadingFusion()
+    // Что Троша уже сказал про текущую цель — чтобы не повторяться.
+    private var announcedTarget: Int? = null
+    private var announcedTurnAt: Double? = null
+    private var nearAnnounced = false
+    private var wasOnLeg = false
+
     private var approachPath: WalkPath? = null
     private var approachTarget: Int? = null
     private var lastRouteRequestAt = Long.MIN_VALUE / 2
     private var routeRequestInFlight = false
 
-    val parentStoryPlaying: Boolean get() = audioGuide.speakingPlaceId == places.getOrNull(openedStop)?.id
+    val parentStoryPlaying: Boolean get() = player.playing == Clips.parent(openedStop)
 
     /** Длина прогулки по выбранным точкам вдоль пешеходных линий; null — линий нет. */
     fun planMeters(plan: List<Int>): Double? = paths.planMeters(plan)
@@ -141,14 +166,38 @@ class KaravanController(
     fun onLocation(loc: Location) {
         val fix = LocationFix(loc.latitude, loc.longitude, if (loc.hasAccuracy()) loc.accuracy else null)
         location = fix
+        headingFusion.onGps(
+            loc.bearing.takeIf { loc.hasBearing() },
+            loc.speed.takeIf { loc.hasSpeed() },
+            SystemClock.elapsedRealtime()
+        )?.let(::publishHeading)
         updateGuidance(fix)
+    }
+
+    /** Показания компаса, градусы от севера. */
+    fun onCompass(degrees: Double) {
+        headingFusion.onCompass(degrees, SystemClock.elapsedRealtime())?.let(::publishHeading)
+    }
+
+    private fun publishHeading(value: Double) {
+        onHeading?.invoke(value)
+        // Экран со стрелкой перерисовываем, только когда направление заметно изменилось.
+        val old = heading
+        if (old == null || abs(angleDelta(old, value)) >= HEADING_STEP_DEG) heading = value
     }
 
     private fun updateGuidance(fix: LocationFix) {
         val target = journey.activeStop
         if (target == null) {
             distanceToTarget = null
+            instruction = null
             return
+        }
+        if (announcedTarget != target) {
+            announcedTarget = target
+            announcedTurnAt = null
+            nearAnnounced = false
+            wasOnLeg = false
         }
         // Точки проходятся строго по порядку: засчитываем только текущую, со своим радиусом прибытия.
         val engine = GuidanceEngine(arrivalRadiusMeters = route.stops[target].radiusMeters, lookAhead = 0)
@@ -156,17 +205,49 @@ class KaravanController(
         val straight = update.distanceToTarget ?: return
         // К первой точке прогулки линии маршрута нет — идём от того места, где стоим.
         val leg = journey.previousStop?.let { paths.between(it, target) }
-        if (leg != null && leg.progress(fix).offPathMeters <= ON_PATH_METERS) {
+        val legProgress = leg?.progress(fix)
+        if (leg != null && legProgress != null && legProgress.offPathMeters <= ON_PATH_METERS) {
             approachLine = null
             distanceToTarget = walkingMeters(leg, fix, straight)
+            wasOnLeg = true
+            guide(leg, legProgress.alongMeters)
         } else {
+            if (wasOnLeg) {
+                // Шли по линии и ушли с неё: Троша зовёт посмотреть на карту, а путь строится заново.
+                wasOnLeg = false
+                announce(Clips.OFF_ROUTE)
+            }
             val approach = approachPath?.takeIf { approachTarget == target }
             if (screen == Screen.Walk) requestApproach(fix, target, approach)
-            val onApproach = approach != null && approach.progress(fix).offPathMeters <= ON_PATH_METERS
+            val approachProgress = approach?.progress(fix)
+            val onApproach = approachProgress != null && approachProgress.offPathMeters <= ON_PATH_METERS
             approachLine = if (onApproach) approach!!.points else listOf(GeoPoint(fix.lat, fix.lon), points[target])
             distanceToTarget = walkingMeters(approach, fix, straight)
+            if (onApproach) guide(approach!!, approachProgress!!.alongMeters) else instruction = null
+        }
+        val distance = distanceToTarget
+        if (!nearAnnounced && distance != null && distance <= NEAR_METERS && distance > route.stops[target].radiusMeters) {
+            nearAnnounced = true
+            announce(Clips.NEAR)
         }
         if (update.reached.isNotEmpty() && screen == Screen.Walk) arrive()
+    }
+
+    /** Подсказка о ближайшем повороте; за [TURN_ANNOUNCE_METERS] до него Троша говорит, куда повернуть. */
+    private fun guide(path: WalkPath, alongMeters: Double) {
+        val next = nextInstruction(path, alongMeters)
+        instruction = next
+        val turn = next.turn ?: return
+        val at = next.maneuver?.atMeters ?: return
+        val already = announcedTurnAt
+        if (next.inMeters <= TURN_ANNOUNCE_METERS && (already == null || abs(already - at) > 1.0)) {
+            announcedTurnAt = at
+            announce(Clips.turn(turn))
+        }
+    }
+
+    private fun announce(clip: String) {
+        if (screen == Screen.Walk) player.enqueue(clip)
     }
 
     /** Просит у OSRM пешеходный путь до цели, если его нет или мы с него свернули. */
@@ -180,6 +261,8 @@ class KaravanController(
             if (line != null && journey.activeStop == target) {
                 approachPath = WalkPath(line)
                 approachTarget = target
+                // Новый путь — новые повороты.
+                announcedTurnAt = null
                 location?.let(::updateGuidance)
             }
         }
@@ -191,7 +274,6 @@ class KaravanController(
         openedStop = stop
         quizChoice = null
         screen = Screen.Stop
-        audioGuide.stop()
         player.play(Clips.arrival(stop))
     }
 
@@ -199,7 +281,6 @@ class KaravanController(
 
     /** Кнопка динамика на экране точки: остановить озвучку или послушать рассказ ещё раз. */
     fun toggleStopStory() {
-        audioGuide.stop()
         if (speaking) {
             player.stop()
         } else {
@@ -210,7 +291,6 @@ class KaravanController(
     /** Ребёнок выбрал вариант ответа: Троша хвалит или просит попробовать ещё раз. */
     fun answer(option: Int) {
         quizChoice = option
-        audioGuide.stop()
         if (route.stops[openedStop].question.isRight(option)) {
             player.play(Clips.RIGHT, Clips.PHOTO)
         } else {
@@ -281,6 +361,7 @@ class KaravanController(
         journey = journey.finish().also(::save)
         distanceToTarget = null
         approachLine = null
+        instruction = null
         screen = Screen.Finale
         if (complete) player.play(Clips.BELL, Clips.FINALE) else player.play(Clips.LATER)
     }
@@ -291,10 +372,9 @@ class KaravanController(
         screen = Screen.Walk
     }
 
-    /** Подробная историческая справка из общего каталога — для взрослых, голосом синтезатора. */
+    /** Подробная историческая справка из каталога — для взрослых, голосом рассказчика. */
     fun toggleParentStory() {
-        player.stop()
-        places.getOrNull(openedStop)?.let(audioGuide::toggle)
+        if (parentStoryPlaying) player.stop() else player.play(Clips.parent(openedStop))
     }
 
     fun openAlbum() {
@@ -317,12 +397,10 @@ class KaravanController(
 
     fun stopAudio() {
         player.stop()
-        audioGuide.stop()
     }
 
     fun dispose() {
         player.stop()
-        audioGuide.shutdown()
         router.shutdown()
         photos.shutdown()
     }
@@ -363,6 +441,11 @@ class KaravanController(
 
     private companion object {
         const val COLLAGE_PHOTO_PX = 900
+        /** За сколько метров до поворота Троша о нём говорит. */
+        const val TURN_ANNOUNCE_METERS = 20.0
+        /** С какого расстояния Троша говорит «точка уже близко» и на экране появляется стрелка. */
+        const val NEAR_METERS = 70.0
+        const val HEADING_STEP_DEG = 3.0
 
         // Новое имя файла: в «journey» версии 0.1.0 прогресс хранился в другом формате.
         const val PREFS = "journey2"

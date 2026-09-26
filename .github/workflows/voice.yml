@@ -13,12 +13,12 @@ on:
       narrator:
         description: "Голос рассказчика"
         type: choice
-        options: ["ru-RU-DmitryNeural", "ru-RU-SvetlanaNeural", "ru-RU-DariyaNeural"]
+        options: ["ru-RU-DmitryNeural", "ru-RU-SvetlanaNeural"]
         default: "ru-RU-DmitryNeural"
       trosha:
         description: "Голос Троши"
         type: choice
-        options: ["ru-RU-SvetlanaNeural", "ru-RU-DariyaNeural", "ru-RU-DmitryNeural"]
+        options: ["ru-RU-SvetlanaNeural", "ru-RU-DmitryNeural"]
         default: "ru-RU-SvetlanaNeural"
       trosha_pitch:
         description: "Тон Троши (выше — звучит моложе)"
@@ -59,7 +59,6 @@ jobs:
           |---|---|
           | Dmitry-… | Дмитрий (ru-RU-DmitryNeural) |
           | Svetlana-… | Светлана (ru-RU-SvetlanaNeural) |
-          | Dariya-… | Дария (ru-RU-DariyaNeural) |
 
           `narrator` — текст рассказчика. `trosha`, `trosha-higher`, `trosha-highest` — реплика Троши
           обычным тоном, выше (+25 Гц) и ещё выше (+45 Гц), чуть быстрее обычного.
