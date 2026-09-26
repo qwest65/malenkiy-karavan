@@ -1,6 +1,7 @@
 package ru.cultureguide.kids.content
 
 import android.content.Context
+import org.json.JSONArray
 import org.json.JSONObject
 
 /** Точка детского маршрута. Координаты берутся из общего каталога по [placeId]. */
@@ -40,8 +41,13 @@ data class KidsRoute(
     val finale: String,
     val stops: List<KidsStop>,
     /** Порядок точек для кнопки «Весь маршрут». */
-    val defaultOrder: List<Int> = stops.indices.toList()
+    val defaultOrder: List<Int> = stops.indices.toList(),
+    /** Готовые маршруты на экране «Куда пойдём?». */
+    val presets: List<RoutePreset> = listOf(RoutePreset("🐫", "Весь маршрут", "", defaultOrder))
 )
+
+/** Готовый маршрут: набор точек в нужном порядке. */
+data class RoutePreset(val emoji: String, val title: String, val subtitle: String, val stops: List<Int>)
 
 /**
  * Имена аудиофайлов в `assets/kids/audio`. Их создаёт `app-kids/tools/generate_audio.py`
@@ -105,8 +111,16 @@ object KidsRouteLoader {
                     radiusMeters = s.optDouble("radius", KidsStop.DEFAULT_RADIUS_M)
                 )
             },
-            defaultOrder = order?.let { a -> List(a.length()) { a.getInt(it) }.filter { it in 0 until stops.length() } }
-                ?: List(stops.length()) { it }
-        )
+            defaultOrder = order?.let { indices(it, stops.length()) } ?: List(stops.length()) { it },
+            presets = json.optJSONArray("presets")?.let { a ->
+                List(a.length()) { i ->
+                    val p = a.getJSONObject(i)
+                    RoutePreset(p.optString("emoji"), p.getString("title"), p.optString("subtitle"), indices(p.getJSONArray("stops"), stops.length()))
+                }.filter { it.stops.isNotEmpty() }
+            } ?: emptyList()
+        ).let { route -> if (route.presets.isEmpty()) route.copy(presets = listOf(RoutePreset("🐫", "Весь маршрут", "", route.defaultOrder))) else route }
     }
+
+    private fun indices(array: JSONArray, count: Int): List<Int> =
+        List(array.length()) { array.getInt(it) }.filter { it in 0 until count }.distinct()
 }

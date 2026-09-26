@@ -97,8 +97,10 @@ class PhotoStore(context: Context) {
     }
 
     private fun decode(uri: Uri): Bitmap? {
+        // С inJustDecodeBounds decodeStream всегда возвращает null — важен только размер в bounds.
         val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-        resolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, bounds) } ?: return null
+        resolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, bounds) }
+        if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return null
         val options = BitmapFactory.Options().apply {
             inSampleSize = sampleSize(bounds.outWidth, bounds.outHeight, MAX_SIDE_PX)
         }

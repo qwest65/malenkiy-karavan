@@ -61,6 +61,9 @@ class KaravanActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        // Пока открыта камера или галерея, Android может закрыть приложение — помним, для какой точки фото.
+        photoStop = savedInstanceState?.getInt(STATE_PHOTO_STOP, -1) ?: -1
+        cameraUri = savedInstanceState?.getString(STATE_CAMERA_URI)?.let(Uri::parse)
         enableEdgeToEdge()
         MapLibre.getInstance(this)
 
@@ -171,6 +174,12 @@ class KaravanActivity : ComponentActivity() {
         Toast.makeText(this, text, Toast.LENGTH_LONG).show()
     }
 
+    override fun onSaveInstanceState(outState: Bundle) {
+        super.onSaveInstanceState(outState)
+        outState.putInt(STATE_PHOTO_STOP, photoStop)
+        cameraUri?.let { outState.putString(STATE_CAMERA_URI, it.toString()) }
+    }
+
     override fun onStart() {
         super.onStart()
         mapView?.onStart()
@@ -205,5 +214,7 @@ class KaravanActivity : ComponentActivity() {
 
     private companion object {
         const val CATALOG_ASSET = "catalog.json"
+        const val STATE_PHOTO_STOP = "photo_stop"
+        const val STATE_CAMERA_URI = "camera_uri"
     }
 }

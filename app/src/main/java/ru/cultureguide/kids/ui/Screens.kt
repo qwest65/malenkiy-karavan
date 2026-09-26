@@ -201,30 +201,77 @@ private fun HomeScreen(c: KaravanController, ensureLocation: () -> Unit) {
 }
 
 /**
- * Родитель сам составляет маршрут: добавляет точки, убирает их и меняет порядок стрелками.
- * По кнопке «Весь маршрут» подставляется порядок, предложенный в route.json.
+ * «Куда пойдём?»: готовые маршруты из route.json и кнопка «Собрать свой маршрут».
+ * Готовый маршрут можно сразу начать или открыть в конструкторе и поправить.
  */
 @Composable
 private fun ChooseScreen(c: KaravanController, ensureLocation: () -> Unit) {
-    val plan = remember { mutableStateListOf<Int>().apply { addAll(c.route.defaultOrder) } }
-    val rest = c.route.stops.indices.filter { it !in plan }
+    // null — список маршрутов; иначе открыт конструктор с этими точками.
+    var editing by remember { mutableStateOf<List<Int>?>(null) }
+    val draft = editing
+    if (draft != null) {
+        BackHandler { editing = null }
+        RouteBuilder(c, draft, onBack = { editing = null }, ensureLocation = ensureLocation)
+        return
+    }
     ScrollPage {
         Row(Modifier.fillMaxWidth()) {
             TextButton(onClick = c::goHome) { Text("← Назад", color = Karavan.Muted) }
         }
         Text("Куда пойдём?", fontSize = 30.sp, fontWeight = FontWeight.Black, color = Karavan.Ink)
+        Text("Выберите готовый маршрут или соберите свой.", fontSize = 16.sp, color = Karavan.Muted, textAlign = TextAlign.Center)
+        c.route.presets.forEach { preset ->
+            Panel {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text(preset.emoji, fontSize = 34.sp)
+                    Column(Modifier.weight(1f)) {
+                        Text(preset.title, fontSize = 21.sp, fontWeight = FontWeight.Bold, color = Karavan.Ink)
+                        if (preset.subtitle.isNotBlank()) Text(preset.subtitle, fontSize = 15.sp, color = Karavan.Muted)
+                    }
+                }
+                StickerRow(c, preset.stops)
+                Text(
+                    listOfNotNull(
+                        "${preset.stops.size} ${pointsWord(preset.stops.size)}",
+                        c.planMeters(preset.stops)?.takeIf { preset.stops.size > 1 }?.let { "${formatDistance(it)} пешком" }
+                    ).joinToString(" · "),
+                    fontSize = 15.sp,
+                    color = Karavan.Ink
+                )
+                Row(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
+                    BigButton("Идём!", Modifier.weight(1f), onClick = { ensureLocation(); c.startWalk(preset.stops) })
+                    OutlinedButton(onClick = { editing = preset.stops }, modifier = Modifier.height(64.dp)) { Text("Изменить") }
+                }
+            }
+        }
+        SoftButton("✏️ Собрать свой маршрут") { editing = emptyList() }
+    }
+}
+
+/**
+ * Конструктор маршрута: родитель добавляет точки, убирает их и меняет порядок стрелками.
+ * Открывается пустым («Собрать свой») или с точками готового маршрута («Изменить»).
+ */
+@Composable
+private fun RouteBuilder(c: KaravanController, initial: List<Int>, onBack: () -> Unit, ensureLocation: () -> Unit) {
+    val plan = remember(initial) { mutableStateListOf<Int>().apply { addAll(initial) } }
+    val rest = c.route.stops.indices.filter { it !in plan }
+    ScrollPage {
+        Row(Modifier.fillMaxWidth()) {
+            TextButton(onClick = onBack) { Text("← К маршрутам", color = Karavan.Muted) }
+        }
+        Text("Свой маршрут", fontSize = 30.sp, fontWeight = FontWeight.Black, color = Karavan.Ink)
         Text(
-            "Соберите свой маршрут: добавляйте точки и меняйте порядок стрелками.",
+            "Добавляйте точки из списка ниже и меняйте порядок стрелками.",
             fontSize = 16.sp,
             color = Karavan.Muted,
             textAlign = TextAlign.Center
         )
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            TextButton(onClick = { plan.clear(); plan.addAll(c.route.defaultOrder) }) { Text("Весь маршрут", color = Karavan.Ink) }
+        if (plan.isNotEmpty()) {
             TextButton(onClick = { plan.clear() }) { Text("Очистить", color = Karavan.Ink) }
         }
         if (plan.isEmpty()) {
-            Text("Маршрут пуст — добавьте точки ниже", fontSize = 17.sp, fontWeight = FontWeight.Bold, color = Karavan.Red)
+            Text("Пока пусто — нажмите ＋ у нужных точек", fontSize = 17.sp, fontWeight = FontWeight.Bold, color = Karavan.Red)
         }
         plan.forEachIndexed { pos, i ->
             PlanStopCard(
