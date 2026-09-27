@@ -154,11 +154,8 @@ private fun HomeScreen(c: KaravanController, ensureLocation: () -> Unit) {
             Text(c.route.title, fontSize = 24.sp, fontWeight = FontWeight.Bold, color = Karavan.Ink)
             Text(c.route.subtitle, fontSize = 17.sp, color = Karavan.Ink)
             Text(
-                listOfNotNull(
-                    "${c.route.stops.size} ${pointsWord(c.route.stops.size)}",
-                    c.planMeters(c.route.stops.indices.toList())?.let { "${formatDistance(it)} пешком" },
-                    c.route.duration
-                ).joinToString(" · "),
+                // Длина и время — по порядку «Весь маршрут», а не по номерам точек.
+                c.planSummary(c.route.defaultOrder),
                 fontSize = 15.sp,
                 color = Karavan.Muted
             )
@@ -238,10 +235,7 @@ private fun ChooseScreen(c: KaravanController, ensureLocation: () -> Unit) {
                 }
                 StickerRow(c, preset.stops)
                 Text(
-                    listOfNotNull(
-                        "${preset.stops.size} ${pointsWord(preset.stops.size)}",
-                        c.planMeters(preset.stops)?.takeIf { preset.stops.size > 1 }?.let { "${formatDistance(it)} пешком" }
-                    ).joinToString(" · "),
+                    c.planSummary(preset.stops),
                     fontSize = 15.sp,
                     color = Karavan.Ink
                 )
@@ -314,10 +308,7 @@ private fun RouteBuilder(c: KaravanController, initial: List<Int>, onBack: () ->
             if (plan.isEmpty()) {
                 "Выберите хотя бы одну точку"
             } else {
-                listOfNotNull(
-                    "${plan.size} ${pointsWord(plan.size)}",
-                    c.planMeters(plan.toList())?.takeIf { plan.size > 1 }?.let { "${formatDistance(it)} пешком" }
-                ).joinToString(" · ")
+                c.planSummary(plan.toList())
             },
             fontSize = 17.sp,
             fontWeight = FontWeight.Bold,
@@ -1022,7 +1013,7 @@ private fun RoundButton(label: String, onClick: () -> Unit) {
 /** «к 1 находке», «к 3 находкам». */
 private fun findsWord(n: Int): String = if (n % 10 == 1 && n % 100 != 11) "находке" else "находкам"
 
-private fun pointsWord(n: Int): String {
+internal fun pointsWord(n: Int): String {
     val mod100 = n % 100
     val mod10 = n % 10
     return when {

@@ -20,6 +20,10 @@ import ru.cultureguide.kids.content.RoutePaths
 import ru.cultureguide.kids.content.StreetGraph
 import ru.cultureguide.kids.content.WalkPath
 import ru.cultureguide.kids.content.angleDelta
+import ru.cultureguide.kids.content.formatEstimate
+import ru.cultureguide.kids.content.walkEstimateMinutes
+import ru.cultureguide.kids.ui.pointsWord
+import ru.cultureguide.navigation.formatDistance
 import ru.cultureguide.kids.content.instruction as nextInstruction
 import ru.cultureguide.kids.map.ApproachRouter
 import ru.cultureguide.kids.photo.Collage
@@ -143,6 +147,16 @@ class KaravanController(
 
     /** Длина прогулки по выбранным точкам вдоль пешеходных линий; null — линий нет. */
     fun planMeters(plan: List<Int>): Double? = paths.planMeters(plan)
+
+    /** «9 точек · 1,7 км пешком · около 1,5 часа» — точки в порядке прогулки. */
+    fun planSummary(plan: List<Int>): String {
+        val meters = planMeters(plan)?.takeIf { plan.size > 1 }
+        return listOfNotNull(
+            "${plan.size} ${pointsWord(plan.size)}",
+            meters?.let { "${formatDistance(it)} пешком" },
+            formatEstimate(walkEstimateMinutes(meters ?: 0.0, plan.size))
+        ).joinToString(" · ")
+    }
 
     fun openChooser() {
         stopAudio()
