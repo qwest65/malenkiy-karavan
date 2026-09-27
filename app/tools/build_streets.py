@@ -50,6 +50,20 @@ OPEN_SPACE = {("leisure", "park"), ("leisure", "garden"), ("place", "square"), (
 
 EARTH = 6_371_008.8
 
+# Скверы, по дорожкам которых ведём, даже если в OpenStreetMap они не отмечены как сквер.
+# Обведены по маршруту, нарисованному на месте: от камня к собору через сквер, от рядов
+# через центральный сквер к площади и от площади к углу Ленина и Климова.
+WALK_AREAS = {
+    "сквер у собора": [
+        (54.077769, 61.555903), (54.078152, 61.557325), (54.077839, 61.557859),
+        (54.077386, 61.557681), (54.077178, 61.556140),
+    ],
+    "центральный сквер": [
+        (54.083036, 61.558724), (54.083279, 61.559839), (54.081526, 61.561357),
+        (54.081248, 61.560527), (54.082465, 61.558985),
+    ],
+}
+
 
 # --- Геометрия ---------------------------------------------------------------------------
 
@@ -150,7 +164,8 @@ def load_streets(south, west, north, east):
                      for g in m.get("geometry", [])]
             if len(outer) >= 3:
                 rings.append(outer)
-    print(f"скверов и площадей: {len(rings)}")
+    rings += WALK_AREAS.values()
+    print(f"скверов и площадей: {len(rings)} (из них вручную: {len(WALK_AREAS)})")
 
     nodes = {el["id"]: (el["lat"], el["lon"]) for el in ways["elements"] if el["type"] == "node"}
     kept, dropped = [], []
@@ -302,6 +317,8 @@ def render(kept, dropped, stops, titles, order, legs, radii):
     ax.set_facecolor("#f6f1e7")
     for _, _, pts in dropped:
         ax.plot([p[1] * kx for p in pts], [p[0] for p in pts], color="#e8a0a0", lw=0.8, ls=(0, (2, 2)), zorder=1)
+    for ring in WALK_AREAS.values():
+        ax.fill([p[1] * kx for p in ring], [p[0] for p in ring], color="#7cc84a", alpha=0.25, zorder=0)
     for _, _, pts in kept:
         ax.plot([p[1] * kx for p in pts], [p[0] for p in pts], color="#9a9a9a", lw=1.4, zorder=2)
     for k, (i, j) in enumerate(zip(order, order[1:])):
@@ -329,7 +346,7 @@ def render(kept, dropped, stops, titles, order, legs, radii):
     ax.set_yticks([])
     total = sum(length(legs[(i, j)]) for i, j in zip(order, order[1:]))
     ax.set_title(f"«Весь маршрут»: {total:.0f} м. Серое — улицы и тротуары, по которым строим путь;\n"
-                 f"розовый пунктир — отброшенные дворы, проезды и тропинки; круги — радиус прибытия", fontsize=12)
+                 f"розовый пунктир — отброшенные дворы, проезды и тропинки; зелёное — скверы; круги — радиус прибытия", fontsize=12)
     PREVIEW.parent.mkdir(parents=True, exist_ok=True)
     fig.tight_layout()
     fig.savefig(PREVIEW)
