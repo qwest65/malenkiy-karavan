@@ -66,13 +66,23 @@ class WalkPathTest {
     }
 
     @Test
-    fun rerouteOnlyWhenNoPathOrOffItAndNotTooOften() {
-        val onPath = LocationFix(54.0005, 61.000)
-        val offPath = LocationFix(54.003, 60.995)
-        assertTrue(Reroute.needed(null, onPath, sinceLastMs = Long.MAX_VALUE))
-        assertFalse(Reroute.needed(null, onPath, sinceLastMs = 5_000))
-        assertFalse(Reroute.needed(path, onPath, sinceLastMs = Long.MAX_VALUE))
-        assertTrue(Reroute.needed(path, offPath, sinceLastMs = Long.MAX_VALUE))
+    fun rerouteOnlyWhenNoPathOrOffItTwiceAndNotTooOften() {
+        val every = Reroute.OFFLINE_INTERVAL_MS
+        assertTrue(Reroute.needed(hasPath = false, offFixes = 0, sinceLastMs = Long.MAX_VALUE, intervalMs = every))
+        assertFalse(Reroute.needed(hasPath = false, offFixes = 0, sinceLastMs = 1_000, intervalMs = every))
+        assertFalse(Reroute.needed(hasPath = true, offFixes = 0, sinceLastMs = Long.MAX_VALUE, intervalMs = every))
+        // Один скачок GPS в сторону — ещё не повод перестраивать.
+        assertFalse(Reroute.needed(hasPath = true, offFixes = 1, sinceLastMs = Long.MAX_VALUE, intervalMs = every))
+        assertTrue(Reroute.needed(hasPath = true, offFixes = 2, sinceLastMs = Long.MAX_VALUE, intervalMs = every))
+    }
+
+    @Test
+    fun pointAlongThePath() {
+        val p = path.pointAt(111.3 + 65.45)
+        assertEquals(b.lat, p.lat, 1e-6)
+        assertEquals((b.lon + c.lon) / 2, p.lon, 1e-4)
+        assertEquals(a, path.pointAt(-5.0))
+        assertEquals(c.lat, path.pointAt(1e6).lat, 1e-9)
     }
 
     @Test

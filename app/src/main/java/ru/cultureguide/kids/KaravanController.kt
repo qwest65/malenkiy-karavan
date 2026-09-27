@@ -16,18 +16,18 @@ import ru.cultureguide.kids.content.KidsRoute
 import ru.cultureguide.kids.content.ON_PATH_METERS
 import ru.cultureguide.kids.content.Reroute
 import ru.cultureguide.kids.content.RoutePaths
+import ru.cultureguide.kids.content.StreetGraph
 import ru.cultureguide.kids.content.WalkPath
 import ru.cultureguide.kids.content.angleDelta
 import ru.cultureguide.kids.content.instruction as nextInstruction
-import ru.cultureguide.kids.content.walkingMeters
 import ru.cultureguide.kids.map.ApproachRouter
 import ru.cultureguide.kids.photo.Collage
 import ru.cultureguide.kids.photo.CollageCard
 import ru.cultureguide.kids.photo.PhotoStore
 import ru.cultureguide.model.Place
 import ru.cultureguide.navigation.GeoPoint
-import ru.cultureguide.navigation.GuidanceEngine
 import ru.cultureguide.navigation.LocationFix
+import ru.cultureguide.navigation.distanceMeters
 import kotlin.math.abs
 
 enum class Screen { Home, Choose, Walk, Stop, Finale, Album }
@@ -51,6 +51,8 @@ class KaravanController(
     val places: List<Place>,
     /** Пешеходные линии между точками; без них расстояние считается по прямой. */
     val paths: RoutePaths,
+    /** Улицы центра без дворов: по ним путь «от меня до точки» строится прямо на телефоне. */
+    private val streets: StreetGraph,
     val player: ClipPlayer,
     private val router: ApproachRouter,
     /** Фото на память с точек и коллаж из них. */
@@ -69,6 +71,9 @@ class KaravanController(
         private set
     var location by mutableStateOf<LocationFix?>(null)
         private set
+    /** Где рисовать стрелку: на линии пути, если мы рядом с ней, иначе там, где показал GPS. */
+    var shownLocation by mutableStateOf<LocationFix?>(null)
+        private set
     /** Сколько идти до следующей точки, м; null — позиция неизвестна. */
     var distanceToTarget by mutableStateOf<Double?>(null)
         private set
@@ -78,10 +83,14 @@ class KaravanController(
     var quizChoice by mutableStateOf<Int?>(null)
         private set
     /**
-     * Линия «от меня до точки», когда до пешеходных линий маршрута далеко: по улицам,
-     * если OSRM ответил, иначе прямая. null — идём по линии маршрута.
+     * Путь «от меня до точки» по улицам: к первой точке прогулки или построенный заново,
+     * когда свернули. Пока он есть, он заменяет на карте линию маршрута к этой точке.
+     * null — идём по линии маршрута.
      */
     var approachLine by mutableStateOf<List<GeoPoint>?>(null)
+        private set
+    /** Пути по улицам нет (далеко от центра и нет интернета) — к точке тянется прямая. */
+    var approachStraight by mutableStateOf(false)
         private set
 
     /** Ближайший поворот на пути к точке; null — пути по улицам нет, идём по прямой. */
@@ -104,11 +113,13 @@ class KaravanController(
     private var announcedTarget: Int? = null
     private var announcedTurnAt: Double? = null
     private var nearAnnounced = false
-    private var wasOnLeg = false
+    private var wasOnPath = false
+    private var offFixes = 0
 
     private var approachPath: WalkPath? = null
     private var approachTarget: Int? = null
-    private var lastRouteRequestAt = Long.MIN_VALUE / 2
+    private var lastRerouteAt = Long.MIN_VALUE / 2
+    private var lastOnlineRequestAt = Long.MIN_VALUE / 2
     private var routeRequestInFlight = false
 
     val parentStoryPlaying: Boolean get() = player.playing == Clips.parent(openedStop)
@@ -191,46 +202,103 @@ class KaravanController(
         if (target == null) {
             distanceToTarget = null
             instruction = null
+            shownLocation = fix
             return
         }
         if (announcedTarget != target) {
             announcedTarget = target
             announcedTurnAt = null
             nearAnnounced = false
-            wasOnLeg = false
+            wasOnPath = false
+            offFixes = 0
         }
-        // Точки проходятся строго по порядку: засчитываем только текущую, со своим радиусом прибытия.
-        val engine = GuidanceEngine(arrivalRadiusMeters = route.stops[target].radiusMeters, lookAhead = 0)
-        val update = engine.update(journey.plan.map { points[it] }, journey.position, fix)
-        val straight = update.distanceToTarget ?: return
-        // К первой точке прогулки линии маршрута нет — идём от того места, где стоим.
-        val leg = journey.previousStop?.let { paths.between(it, target) }
-        val legProgress = leg?.progress(fix)
-        if (leg != null && legProgress != null && legProgress.offPathMeters <= ON_PATH_METERS) {
-            approachLine = null
-            distanceToTarget = walkingMeters(leg, fix, straight)
-            wasOnLeg = true
-            guide(leg, legProgress.alongMeters)
+        val radius = route.stops[target].radiusMeters
+        val straight = distanceMeters(fix.lat, fix.lon, points[target].lat, points[target].lon)
+        // Путь к точке: построенный заново «от меня», а если его нет — линия маршрута от прошлой точки.
+        // К первой точке прогулки линии маршрута нет — путь сразу строится от того места, где стоим.
+        val approach = approachPath?.takeIf { approachTarget == target }
+        val active = approach ?: journey.previousStop?.let { paths.between(it, target) }
+        val progress = active?.progress(fix)
+        val onPath = progress != null && progress.offPathMeters <= ON_PATH_METERS
+        if (onPath) {
+            offFixes = 0
+            wasOnPath = true
+            // Как в навигаторе: стрелка едет по линии, а не прыгает рядом вместе с GPS.
+            val snapped = active!!.pointAt(progress!!.alongMeters)
+            shownLocation = LocationFix(snapped.lat, snapped.lon, fix.accuracyMeters)
+            distanceToTarget = progress.remainingMeters
+            guide(active, progress.alongMeters)
         } else {
-            if (wasOnLeg) {
-                // Шли по линии и ушли с неё: Троша зовёт посмотреть на карту, а путь строится заново.
-                wasOnLeg = false
-                announce(Clips.OFF_ROUTE)
-            }
-            val approach = approachPath?.takeIf { approachTarget == target }
-            if (screen == Screen.Walk) requestApproach(fix, target, approach)
-            val approachProgress = approach?.progress(fix)
-            val onApproach = approachProgress != null && approachProgress.offPathMeters <= ON_PATH_METERS
-            approachLine = if (onApproach) approach!!.points else listOf(GeoPoint(fix.lat, fix.lon), points[target])
-            distanceToTarget = walkingMeters(approach, fix, straight)
-            if (onApproach) guide(approach!!, approachProgress!!.alongMeters) else instruction = null
+            offFixes++
+            shownLocation = fix
+            distanceToTarget = straight
+            instruction = null
+            if (screen == Screen.Walk) reroute(fix, target, hasPath = active != null)
         }
+        showApproach(target)
+
         val distance = distanceToTarget
-        if (!nearAnnounced && distance != null && distance <= NEAR_METERS && distance > route.stops[target].radiusMeters) {
+        if (!nearAnnounced && distance != null && distance <= NEAR_METERS && distance > radius) {
             nearAnnounced = true
             announce(Clips.NEAR)
         }
-        if (update.reached.isNotEmpty() && screen == Screen.Walk) arrive()
+        // Прибыли: близко к точке по GPS или по стрелке на линии — у зданий GPS уводит в сторону.
+        val shown = shownLocation ?: fix
+        val snappedStraight = distanceMeters(shown.lat, shown.lon, points[target].lat, points[target].lon)
+        if (screen == Screen.Walk && minOf(straight, snappedStraight) <= radius) arrive()
+    }
+
+    /** Карта показывает путь «от меня», пока он есть; иначе — прямую, если пути нет совсем. */
+    private fun showApproach(target: Int) {
+        val approach = approachPath?.takeIf { approachTarget == target }
+        val hasLeg = journey.previousStop?.let { paths.between(it, target) } != null
+        val here = location
+        approachStraight = approach == null && !hasLeg && here != null
+        approachLine = when {
+            approach != null -> approach.points
+            approachStraight -> listOf(GeoPoint(here!!.lat, here.lon), points[target])
+            else -> null
+        }
+    }
+
+    /**
+     * Свернули или пути ещё нет — строим заново от того места, где стоим: по встроенной
+     * карте улиц мгновенно и без интернета; если мы далеко от центра — у OSRM.
+     */
+    private fun reroute(fix: LocationFix, target: Int, hasPath: Boolean) {
+        val now = SystemClock.elapsedRealtime()
+        if (!Reroute.needed(hasPath, offFixes, now - lastRerouteAt, Reroute.OFFLINE_INTERVAL_MS)) return
+        lastRerouteAt = now
+        if (hasPath && wasOnPath) {
+            // Шли по линии и ушли с неё: Троша предупреждает, а путь уже строится заново.
+            wasOnPath = false
+            announce(Clips.OFF_ROUTE)
+        }
+        val from = GeoPoint(fix.lat, fix.lon)
+        val line = streets.route(from, points[target])
+        if (line != null) {
+            setApproach(line, target)
+            updateGuidance(fix)
+            return
+        }
+        if (routeRequestInFlight || now - lastOnlineRequestAt < Reroute.ONLINE_INTERVAL_MS) return
+        routeRequestInFlight = true
+        lastOnlineRequestAt = now
+        router.route(from, points[target]) { online ->
+            routeRequestInFlight = false
+            if (online != null && journey.activeStop == target) {
+                setApproach(online, target)
+                location?.let(::updateGuidance)
+            }
+        }
+    }
+
+    private fun setApproach(line: List<GeoPoint>, target: Int) {
+        approachPath = WalkPath(line)
+        approachTarget = target
+        offFixes = 0
+        // Новый путь — новые повороты.
+        announcedTurnAt = null
     }
 
     /** Подсказка о ближайшем повороте; за [TURN_ANNOUNCE_METERS] до него Троша говорит, куда повернуть. */
@@ -248,24 +316,6 @@ class KaravanController(
 
     private fun announce(clip: String) {
         if (screen == Screen.Walk) player.enqueue(clip)
-    }
-
-    /** Просит у OSRM пешеходный путь до цели, если его нет или мы с него свернули. */
-    private fun requestApproach(fix: LocationFix, target: Int, current: WalkPath?) {
-        val now = SystemClock.elapsedRealtime()
-        if (routeRequestInFlight || !Reroute.needed(current, fix, now - lastRouteRequestAt)) return
-        routeRequestInFlight = true
-        lastRouteRequestAt = now
-        router.route(GeoPoint(fix.lat, fix.lon), points[target]) { line ->
-            routeRequestInFlight = false
-            if (line != null && journey.activeStop == target) {
-                approachPath = WalkPath(line)
-                approachTarget = target
-                // Новый путь — новые повороты.
-                announcedTurnAt = null
-                location?.let(::updateGuidance)
-            }
-        }
     }
 
     /** Подошли к точке — по GPS или по кнопке «Мы на месте!». */
@@ -361,6 +411,7 @@ class KaravanController(
         journey = journey.finish().also(::save)
         distanceToTarget = null
         approachLine = null
+        approachStraight = false
         instruction = null
         screen = Screen.Finale
         if (complete) player.play(Clips.BELL, Clips.FINALE) else player.play(Clips.LATER)
