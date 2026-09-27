@@ -8,7 +8,8 @@ android {
     namespace = "ru.cultureguide.kids"
     compileSdk = 35
     defaultConfig {
-        applicationId = "ru.cultureguide.kids"
+        // Имя пакета в RuStore — после публикации его не изменить. Код остаётся в пакете ru.cultureguide.kids.
+        applicationId = "ru.malenkiykaravan"
         minSdk = 26
         targetSdk = 35
         versionCode = 10
