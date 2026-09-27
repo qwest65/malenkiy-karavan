@@ -1,99 +1,23 @@
 <!doctype html>
 <html lang="ru">
 <head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="description" content="Маленький караван — интерактивная прогулка-квест по Троицку для детей 4–7 лет вместе с родителями.">
-  <title>Маленький караван — прогулка-квест по Троицку</title>
-  <style>
-    :root{color-scheme:light dark}
-    body{font-family:system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;max-width:900px;margin:0 auto;padding:32px 20px;line-height:1.6;color:#222;background:#fff}
-    @media(prefers-color-scheme:dark){body{color:#eee;background:#111}.card{background:#1b1b1b;border-color:#333}a{color:#7ab7ff}.muted{color:#aaa}}
-    h1{font-size:clamp(2.2rem,7vw,4rem);line-height:1.1;margin-bottom:.3em}h2{margin-top:2.2em}
-    .lead{font-size:1.2rem}.card{border:1px solid #ddd;border-radius:16px;padding:20px;margin:18px 0}
-    li{margin:.45em 0}a{color:#1769aa}.muted{color:#666}.buttons{display:flex;flex-wrap:wrap;gap:12px;margin:24px 0}
-    .button{display:inline-block;padding:10px 16px;border-radius:10px;background:#1769aa;color:white;text-decoration:none}
-    footer{margin-top:48px;padding-top:20px;border-top:1px solid #ddd}
-  </style>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="description" content="Маленький караван — семейная прогулка-квест по Троицку вместе с верблюжонком Трошей.">
+<title>Маленький караван — путешествие с Трошей</title>
+<style>
+:root{--ink:#263238;--cream:#fff9ec;--paper:#fff;--orange:#f28c28;--yellow:#ffd45a;--green:#65b77a;--blue:#62b6e8;--red:#e96b5b;--purple:#8d7bd3}
+*{box-sizing:border-box}html{scroll-behavior:smooth}body{margin:0;font-family:system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color:var(--ink);background:var(--cream);line-height:1.6}a{color:inherit}.wrap{max-width:1080px;margin:auto;padding:0 22px}.hero{position:relative;overflow:hidden;background:linear-gradient(145deg,#ffe58a 0%,#ffd45a 42%,#f5a052 100%);padding:56px 0 70px}.hero:before,.hero:after{content:"";position:absolute;border-radius:50%;background:rgba(255,255,255,.2)}.hero:before{width:280px;height:280px;right:-90px;top:-100px}.hero:after{width:180px;height:180px;left:-70px;bottom:-80px}.hero-inner{position:relative;z-index:1;display:grid;grid-template-columns:1.15fr .85fr;gap:30px;align-items:center}.badge{display:inline-block;background:#fff;border-radius:999px;padding:7px 14px;font-weight:800;box-shadow:0 5px 0 rgba(0,0,0,.08)}h1{font-size:clamp(3rem,8vw,6.5rem);line-height:.9;margin:20px 0 16px;letter-spacing:-.05em}.hero p{font-size:1.3rem;max-width:650px;margin:0 0 25px}.buttons{display:flex;flex-wrap:wrap;gap:12px}.btn{display:inline-block;padding:13px 18px;border-radius:16px;text-decoration:none;font-weight:800;background:#fff;box-shadow:0 5px 0 rgba(0,0,0,.12)}.btn.alt{background:var(--ink);color:#fff}.camel{background:#d98a45;border:12px solid #fff;border-radius:48% 52% 45% 45%;min-height:300px;display:flex;align-items:center;justify-content:center;font-size:8rem;box-shadow:0 12px 0 rgba(0,0,0,.12);transform:rotate(2deg)}section{padding:64px 0}h2{font-size:clamp(2rem,4vw,3rem);line-height:1.1;margin:0 0 24px}.lead{text-align:center;max-width:750px;margin:-5px auto 35px;font-size:1.15rem}.cards{display:grid;grid-template-columns:repeat(3,1fr);gap:18px}.card{background:var(--paper);border-radius:26px;padding:25px;box-shadow:0 8px 0 rgba(38,50,56,.08);border:2px solid rgba(38,50,56,.06)}.card:nth-child(1){border-color:#ffd45a}.card:nth-child(2){border-color:#62b6e8}.card:nth-child(3){border-color:#65b77a}.icon{font-size:2.7rem}.card h3{margin:8px 0;font-size:1.3rem}.route{background:#8acb86;position:relative;overflow:hidden}.route .path{background:#fff;border-radius:30px;padding:30px;box-shadow:0 10px 0 rgba(38,50,56,.1)}.stops{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;counter-reset:stop}.stop{background:#fff9ec;border-radius:16px;padding:15px;font-weight:700}.stop:before{counter-increment:stop;content:counter(stop);display:inline-flex;width:30px;height:30px;align-items:center;justify-content:center;border-radius:50%;background:var(--orange);color:#fff;margin-right:8px}.audience{background:#62b6e8}.audience-grid{display:grid;grid-template-columns:1fr 1fr;gap:20px}.team{background:#fff}.person{display:flex;gap:18px;align-items:center;background:var(--cream);border-radius:22px;padding:20px}.avatar{width:62px;height:62px;border-radius:50%;display:flex;align-items:center;justify-content:center;background:var(--yellow);font-size:1.7rem;font-weight:900}.contact{background:var(--ink);color:#fff;border-radius:28px;padding:30px}.contact a{color:#ffe08a}footer{padding:35px 0;background:#202a2e;color:#dce4e7}footer a{color:#ffe08a}.small{opacity:.8;font-size:.95rem}@media(max-width:780px){.hero-inner,.audience-grid{grid-template-columns:1fr}.camel{min-height:190px;font-size:5rem}.cards,.stops{grid-template-columns:1fr}.hero{padding-top:35px}section{padding:45px 0}}
+</style>
 </head>
 <body>
-  <header>
-    <h1>Маленький караван</h1>
-    <p class="lead">Интерактивная прогулка-квест по Троицку для детей 4–7 лет вместе с родителями.</p>
-    <div class="buttons">
-      <a class="button" href="privacy.html">Политика конфиденциальности</a>
-      <a class="button" href="https://github.com/qwest65/malenkiy-karavan">Исходный код на GitHub</a>
-    </div>
-  </header>
-
-  <section class="card">
-    <h2>О приложении</h2>
-    <p>Верблюжонок Троша отстал от каравана и растерял по городу свои вещи. Помогите ему пройти маршрут, найти пропажи и узнать интересные факты о Троицке.</p>
-    <p>На каждой точке ребёнка ждут короткий рассказ, вопрос и игровое задание. Во время прогулки можно делать фотографии, собирать найденные вещи в альбом и после прохождения маршрута создать коллаж.</p>
-  </section>
-
-  <section>
-    <h2>Возможности</h2>
-    <ul>
-      <li>готовые маршруты по Троицку;</li>
-      <li>создание собственного маршрута;</li>
-      <li>интерактивная карта и пешеходная навигация;</li>
-      <li>определение прибытия к точкам маршрута;</li>
-      <li>рассказы о достопримечательностях;</li>
-      <li>вопросы и игровые задания;</li>
-      <li>аудиосопровождение;</li>
-      <li>альбом найденных вещей;</li>
-      <li>фотографии и создание коллажа;</li>
-      <li>подсказки для родителей;</li>
-      <li>возможность поставить прогулку на паузу и продолжить позже.</li>
-    </ul>
-  </section>
-
-  <section>
-    <h2>Маршрут «Троша потерялся»</h2>
-    <p>Основной маршрут проходит через исторические места Троицка:</p>
-    <ol>
-      <li>памятный камень Троицкой крепости;</li>
-      <li>Свято-Троицкий собор;</li>
-      <li>бронзовый верблюд;</li>
-      <li>торговые ряды;</li>
-      <li>центральная площадь;</li>
-      <li>скульптура «Городовой»;</li>
-      <li>гостиница «Центральная»;</li>
-      <li>памятник Крылову и героям его басен;</li>
-      <li>пассаж братьев Яушевых.</li>
-    </ol>
-  </section>
-
-  <section>
-    <h2>Для детей и родителей</h2>
-    <p>Приложение рассчитано на совместную прогулку ребёнка и взрослого. Родитель помогает отвечать на вопросы, обсуждает достопримечательности и вместе с ребёнком проходит маршрут.</p>
-    <p>Регистрация не требуется. Реклама не используется.</p>
-  </section>
-
-  <section>
-    <h2>Техническая информация</h2>
-    <ul>
-      <li>Android 8.0 и новее;</li>
-      <li>для навигации используется геолокация;</li>
-      <li>фотографии и прогресс прогулки сохраняются на устройстве;</li>
-      <li>для некоторых функций требуется подключение к интернету.</li>
-    </ul>
-  </section>
-
-  <section class="card">
-    <h2>Разработчики</h2>
-    <p><strong>Сердюков Константин Леонидович</strong> — разработчик.</p>
-    <p><strong>Сердюкова Анна Григорьевна</strong> — руководитель проекта.</p>
-    <p><strong>Контакты:</strong><br>
-      <a href="mailto:gubon0160@gmail.com">gubon0160@gmail.com</a><br>
-      <a href="mailto:qwest_06@mail.ru">qwest_06@mail.ru</a>
-    </p>
-  </section>
-
-  <footer>
-    <p class="muted">«Маленький караван» — проект для семейных прогулок и знакомства с историей Троицка.</p>
-    <p><a href="privacy.html">Политика конфиденциальности</a> · <a href="https://github.com/qwest65/malenkiy-karavan">GitHub проекта</a></p>
-  </footer>
-</body>
-</html>
+<header class="hero"><div class="wrap hero-inner"><div><span class="badge">Семейное приключение по Троицку</span><h1>Маленький<br>караван</h1><p>Помогите верблюжонку Троше найти потерянные вещи и вместе открыть историю родного города.</p><div class="buttons"><a class="btn" href="#start">Начать путешествие</a><a class="btn alt" href="privacy.html">Политика конфиденциальности</a></div></div><div class="camel" aria-label="Верблюжонок Троша">🐪</div></div></header>
+<main>
+<section id="start"><div class="wrap"><h2 style="text-align:center">Троша зовёт в дорогу!</h2><p class="lead">«Маленький караван» превращает обычную прогулку по Троицку в игру. Ребёнок исследует город, выполняет задания и собирает собственные находки.</p><div class="cards"><article class="card"><div class="icon">🗺️</div><h3>Идём по маршруту</h3><p>Карта и пешеходная навигация помогают не пропустить следующую точку.</p></article><article class="card"><div class="icon">🔎</div><h3>Ищем и играем</h3><p>На каждой остановке — история, вопрос или небольшое задание.</p></article><article class="card"><div class="icon">📸</div><h3>Сохраняем воспоминания</h3><p>Фотографируйтесь, собирайте находки и создавайте коллаж после прогулки.</p></article></div></div></section>
+<section class="route"><div class="wrap"><h2>Маршрут «Троша потерялся»</h2><div class="path"><p><strong>9 остановок — одно большое приключение.</strong> Можно пройти весь маршрут или составить собственную прогулку.</p><div class="stops"><div class="stop">Памятный камень Троицкой крепости</div><div class="stop">Свято-Троицкий собор</div><div class="stop">Бронзовый верблюд</div><div class="stop">Торговые ряды</div><div class="stop">Центральная площадь</div><div class="stop">Скульптура «Городовой»</div><div class="stop">Гостиница «Центральная»</div><div class="stop">Памятник Крылову</div><div class="stop">Пассаж братьев Яушевых</div></div></div></div></section>
+<section class="audience"><div class="wrap"><h2>Для маленьких путешественников и взрослых</h2><div class="audience-grid"><div class="card"><div class="icon">👨‍👩‍👧</div><h3>Вместе интереснее</h3><p>Приложение рассчитано на совместную прогулку ребёнка и родителя. Взрослый помогает отвечать на вопросы и рассказывает о городе.</p></div><div class="card"><div class="icon">🎧</div><h3>Слушаем и узнаём</h3><p>Короткие рассказы и аудиосопровождение помогают знакомиться с историей Троицка без скучных лекций.</p></div></div></div></section>
+<section><div class="wrap"><h2 style="text-align:center">Что внутри?</h2><div class="cards"><article class="card"><h3>🎒 Альбом находок</h3><p>За прохождение точек ребёнок собирает виртуальные находки.</p></article><article class="card"><h3>🏆 Маленькие достижения</h3><p>Прогресс прогулки сохраняется, а маршрут можно продолжить позже.</p></article><article class="card"><h3>📷 Свой коллаж</h3><p>Фотографии с прогулки можно объединить в памятный коллаж.</p></article></div></div></section>
+<section><div class="wrap"><div class="contact"><h2>О проекте</h2><p>«Маленький караван» создан для семейных прогулок и знакомства детей с историей Троицка.</p><p><strong>Разработчик:</strong> Сердюков Константин Леонидович<br><strong>Руководитель проекта:</strong> Сердюкова Анна Григорьевна</p><p><strong>Контакты:</strong><br><a href="mailto:gubon0160@gmail.com">gubon0160@gmail.com</a><br><a href="mailto:qwest_06@mail.ru">qwest_06@mail.ru</a></p><div class="buttons"><a class="btn" href="https://github.com/qwest65/malenkiy-karavan">Исходный код на GitHub</a><a class="btn" href="privacy.html">Политика конфиденциальности</a></div></div></div></section>
+</main>
+<footer><div class="wrap"><strong>Маленький караван</strong><p class="small">Android 8.0 и новее · Регистрация не требуется · Реклама не используется</p><p class="small"><a href="privacy.html">Политика конфиденциальности</a> · <a href="https://github.com/qwest65/malenkiy-karavan">GitHub проекта</a></p></div></footer>
+</body></html>
