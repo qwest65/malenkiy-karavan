@@ -82,6 +82,7 @@ class KaravanMap(
     private var journey: Journey? = null
     private var me: LocationFix? = null
     private var approach: List<GeoPoint>? = null
+    private var approachStraight = false
     private var heading: Double? = null
     private var lastCameraAtMs = 0L
     private val main = Handler(Looper.getMainLooper())
@@ -132,7 +133,13 @@ class KaravanMap(
         fitted = false
     }
 
-    fun update(journey: Journey, me: LocationFix?, approach: List<GeoPoint>?) {
+    /**
+     * @param me где рисовать стрелку (уже «притянутую» к линии, если мы на ней)
+     * @param approach путь «от меня до точки»; пока он есть, линия маршрута к этой точке не рисуется
+     * @param straight пути по улицам нет — [approach] это прямая до точки, рисуется пунктиром
+     */
+    fun update(journey: Journey, me: LocationFix?, approach: List<GeoPoint>?, straight: Boolean) {
+        this.approachStraight = straight
         this.journey = journey
         this.me = me
         this.approach = approach
@@ -213,12 +220,25 @@ class KaravanMap(
             )
         )
         loaded.addLayer(
-            LineLayer(LAYER_APPROACH, SRC_APPROACH).withProperties(
-                lineColor(ME_COLOR),
-                lineWidth(4f),
-                lineCap(Property.LINE_CAP_ROUND),
-                lineDasharray(arrayOf(0.5f, 2f))
-            )
+            LineLayer(LAYER_APPROACH, SRC_APPROACH)
+                .withFilter(Expression.eq(Expression.get(PROP_STATE), STATE_STRAIGHT))
+                .withProperties(
+                    lineColor(ME_COLOR),
+                    lineWidth(4f),
+                    lineCap(Property.LINE_CAP_ROUND),
+                    lineDasharray(arrayOf(0.5f, 2f))
+                )
+        )
+        // Путь «от меня до точки» по улицам выглядит как текущий участок маршрута: его и заменяет.
+        loaded.addLayer(
+            LineLayer(LAYER_APPROACH_ROUTE, SRC_APPROACH)
+                .withFilter(Expression.eq(Expression.get(PROP_STATE), STATE_ACTIVE))
+                .withProperties(
+                    lineColor(ROUTE_COLOR),
+                    lineWidth(7f),
+                    lineCap(Property.LINE_CAP_ROUND),
+                    lineJoin(Property.LINE_JOIN_ROUND)
+                )
         )
         loaded.addLayer(
             CircleLayer(LAYER_ME_HALO, SRC_ME).withProperties(
@@ -268,19 +288,29 @@ class KaravanMap(
         val journey = journey ?: return
         s.getSourceAs<GeoJsonSource>(SRC_ROUTE)?.setGeoJson(
             FeatureCollection.fromFeatures(
-                legs(journey.plan).mapIndexed { k, leg ->
+                legs(journey.plan).mapIndexedNotNull { k, leg ->
                     // Участок k ведёт к точке plan[k + 1].
                     val state = when {
                         k + 1 < journey.position -> STATE_DONE
                         k + 1 == journey.position -> STATE_ACTIVE
                         else -> STATE_NEXT
                     }
+                    // Путь построен заново от нас — старая линия к этой точке больше не нужна.
+                    if (state == STATE_ACTIVE && approach != null && !approachStraight) return@mapIndexedNotNull null
                     Feature.fromGeometry(lineOf(leg)).apply { addStringProperty(PROP_STATE, state) }
                 }
             )
         )
         s.getSourceAs<GeoJsonSource>(SRC_APPROACH)?.setGeoJson(
-            FeatureCollection.fromFeatures(listOfNotNull(approach?.takeIf { it.size >= 2 }?.let { Feature.fromGeometry(lineOf(it)) }))
+            FeatureCollection.fromFeatures(
+                listOfNotNull(
+                    approach?.takeIf { it.size >= 2 }?.let {
+                        Feature.fromGeometry(lineOf(it)).apply {
+                            addStringProperty(PROP_STATE, if (approachStraight) STATE_STRAIGHT else STATE_ACTIVE)
+                        }
+                    }
+                )
+            )
         )
         s.getSourceAs<GeoJsonSource>(SRC_STOPS)?.setGeoJson(
             FeatureCollection.fromFeatures(
@@ -399,6 +429,8 @@ class KaravanMap(
         const val LAYER_ROUTE_NEXT = "karavan-route-next"
         const val LAYER_ROUTE_ACTIVE = "karavan-route-active"
         const val LAYER_APPROACH = "karavan-approach-line"
+        const val LAYER_APPROACH_ROUTE = "karavan-approach-route"
+        const val STATE_STRAIGHT = "straight"
         const val LAYER_STOPS = "karavan-stops-icons"
         const val LAYER_ME = "karavan-me-dot"
         const val LAYER_ME_HALO = "karavan-me-halo"

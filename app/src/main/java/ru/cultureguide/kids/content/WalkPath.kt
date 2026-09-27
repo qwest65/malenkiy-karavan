@@ -6,8 +6,11 @@ import ru.cultureguide.navigation.distanceMeters
 import kotlin.math.cos
 import kotlin.math.hypot
 
-/** Дальше этого расстояния от пешеходной линии считаем, что идём своей дорогой. */
-const val ON_PATH_METERS = 40.0
+/**
+ * Ближе этого к линии стрелка «притягивается» к ней; дальше — считаем, что свернули,
+ * и путь строится заново от того места, где мы стоим.
+ */
+const val ON_PATH_METERS = 25.0
 
 private const val METERS_PER_DEGREE = 111_320.0
 
@@ -29,6 +32,22 @@ class WalkPath(val points: List<GeoPoint>) {
 
     /** Повороты вдоль линии — для подсказок «через 30 м налево». */
     val maneuvers: List<Maneuver> by lazy { findManeuvers(points) }
+
+    /** Точка линии в [alongMeters] от её начала — сюда «притягивается» стрелка на карте. */
+    fun pointAt(alongMeters: Double): GeoPoint {
+        var left = alongMeters.coerceIn(0.0, lengthMeters)
+        for (i in segmentMeters.indices) {
+            val seg = segmentMeters[i]
+            if (left <= seg || i == segmentMeters.lastIndex) {
+                val t = if (seg == 0.0) 0.0 else (left / seg).coerceIn(0.0, 1.0)
+                val a = points[i]
+                val b = points[i + 1]
+                return GeoPoint(a.lat + (b.lat - a.lat) * t, a.lon + (b.lon - a.lon) * t)
+            }
+            left -= seg
+        }
+        return points.last()
+    }
 
     fun progress(fix: LocationFix): PathProgress {
         var bestOff = Double.MAX_VALUE
@@ -86,16 +105,17 @@ class RoutePaths(legs: Map<Pair<Int, Int>, WalkPath>) {
     }
 }
 
-/** Когда просить новый маршрут «от меня до точки» — не чаще раза в [MIN_INTERVAL_MS]. */
+/**
+ * Когда строить путь «от меня до точки» заново. Своего пути нет — строим сразу; есть —
+ * только если мы с него свернули ([ON_PATH_METERS]) [CONFIRM_FIXES] замера подряд: один
+ * скачок GPS не в счёт. И не чаще [intervalMs]: по встроенной карте улиц — раз в
+ * [OFFLINE_INTERVAL_MS], у OSRM через интернет — раз в [ONLINE_INTERVAL_MS].
+ */
 object Reroute {
-    const val MIN_INTERVAL_MS = 20_000L
+    const val CONFIRM_FIXES = 2
+    const val OFFLINE_INTERVAL_MS = 3_000L
+    const val ONLINE_INTERVAL_MS = 20_000L
 
-    /**
-     * @param current уже построенный путь к этой же цели; null — пути нет или он к другой точке.
-     * @param sinceLastMs сколько прошло с прошлого запроса.
-     */
-    fun needed(current: WalkPath?, fix: LocationFix, sinceLastMs: Long): Boolean {
-        if (sinceLastMs < MIN_INTERVAL_MS) return false
-        return current == null || current.progress(fix).offPathMeters > ON_PATH_METERS
-    }
+    fun needed(hasPath: Boolean, offFixes: Int, sinceLastMs: Long, intervalMs: Long): Boolean =
+        sinceLastMs >= intervalMs && (!hasPath || offFixes >= CONFIRM_FIXES)
 }

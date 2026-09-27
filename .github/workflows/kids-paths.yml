@@ -1,14 +1,15 @@
 name: Kids walking paths
 
-# Пешеходные линии «Маленького каравана» строятся здесь, а не при каждой сборке APK:
-# результат коммитится в assets/kids/paths.json, и приложение работает с ним без интернета.
+# Карта улиц центра без дворов и пешеходные линии «Маленького каравана» строятся здесь,
+# а не при каждой сборке APK: результат коммитится в assets/kids/streets.json и paths.json,
+# и приложение работает с ними без интернета. Картинка-проверка — app/tools/preview/route-preview.png.
 on:
   push:
     branches: ["main", "claude/**"]
     paths:
       - "app/src/main/assets/kids/route.json"
       - "core/src/main/assets/catalog.json"
-      - "app/tools/build_paths.py"
+      - "app/tools/build_streets.py"
   workflow_dispatch:
 
 permissions:
@@ -25,21 +26,23 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Build walking paths
-        run: python3 app/tools/build_paths.py
+      - name: Build streets and walking paths
+        run: |
+          pip install --quiet matplotlib
+          python3 app/tools/build_streets.py
 
       - name: Commit paths and rebuild APK
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          git add app/src/main/assets/kids/paths.json
+          git add app/src/main/assets/kids/paths.json app/src/main/assets/kids/streets.json app/tools/preview/route-preview.png
           if git diff --cached --quiet; then
             echo "Линии не изменились."
             exit 0
           fi
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git commit -m "Update Malenkiy Karavan walking paths"
+          git commit -m "Update Malenkiy Karavan streets and walking paths"
           git push
           # Пуш от GITHUB_TOKEN не запускает workflow, поэтому сборку APK с новыми линиями запускаем явно.
           gh workflow run android.yml --ref "$GITHUB_REF_NAME"

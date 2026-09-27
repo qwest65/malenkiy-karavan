@@ -19,6 +19,7 @@ import org.maplibre.android.maps.MapView
 import ru.cultureguide.data.CatalogDatabase
 import ru.cultureguide.kids.audio.ClipPlayer
 import ru.cultureguide.kids.content.KidsPathsLoader
+import ru.cultureguide.kids.content.StreetsLoader
 import ru.cultureguide.kids.content.KidsRouteLoader
 import ru.cultureguide.kids.map.ApproachRouter
 import ru.cultureguide.kids.map.HeadingSensor
@@ -86,7 +87,7 @@ class KaravanActivity : ComponentActivity() {
         val paths = KidsPathsLoader.load(this, route)
 
         photos = PhotoStore(this)
-        controller = KaravanController(this, route, places, paths, ClipPlayer(this), ApproachRouter(), photos)
+        controller = KaravanController(this, route, places, paths, StreetsLoader.load(this), ClipPlayer(this), ApproachRouter(), photos)
         karavanMap = KaravanMap(this, route.stops, places, paths)
         compass = HeadingSensor(this, controller::onCompass)
         controller.onHeading = karavanMap::setHeading

@@ -7,7 +7,7 @@ import ru.cultureguide.navigation.GeoPoint
 import java.io.IOException
 
 /**
- * Пешеходные линии из `assets/kids/paths.json` (их строит `app-kids/tools/build_paths.py`)
+ * Пешеходные линии из `assets/kids/paths.json` (их строит `app/tools/build_streets.py`)
  * между любыми двумя точками маршрута. Если файла нет или он от другого маршрута,
  * возвращается [RoutePaths.EMPTY] и карта соединяет точки прямыми.
  */
@@ -47,5 +47,31 @@ object KidsPathsLoader {
             })
         }
         return RoutePaths(byPair)
+    }
+}
+
+/**
+ * Улицы центра из `assets/kids/streets.json` (их строит `app/tools/build_streets.py`).
+ * Нет файла — [StreetGraph.EMPTY], и путь «от меня до точки» спрашивается у OSRM.
+ */
+object StreetsLoader {
+    private const val STREETS_ASSET = "kids/streets.json"
+
+    fun load(context: Context): StreetGraph = try {
+        val json = JSONObject(context.assets.open(STREETS_ASSET).bufferedReader(Charsets.UTF_8).use { it.readText() })
+        val nodes = json.getJSONArray("nodes")
+        val edges = json.getJSONArray("edges")
+        StreetGraph.fromFlat(
+            DoubleArray(nodes.length()) { nodes.getDouble(it) },
+            IntArray(edges.length()) { edges.getInt(it) }
+        )
+    } catch (_: IOException) {
+        StreetGraph.EMPTY
+    } catch (_: JSONException) {
+        StreetGraph.EMPTY
+    } catch (_: IllegalArgumentException) {
+        StreetGraph.EMPTY
+    } catch (_: IndexOutOfBoundsException) {
+        StreetGraph.EMPTY
     }
 }

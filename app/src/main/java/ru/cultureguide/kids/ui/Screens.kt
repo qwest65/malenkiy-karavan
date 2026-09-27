@@ -96,7 +96,7 @@ import ru.cultureguide.navigation.formatDistance
 class MapHooks(
     val onCreated: (MapView) -> Unit,
     val onReleased: (MapView) -> Unit,
-    val onUpdate: (Journey, LocationFix?, List<GeoPoint>?) -> Unit,
+    val onUpdate: (Journey, LocationFix?, List<GeoPoint>?, Boolean) -> Unit,
     val onFitAll: () -> Unit,
     /** Следует ли карта за нами, как навигатор; читается как состояние Compose. */
     val isFollowing: () -> Boolean,
@@ -386,7 +386,9 @@ private fun WalkScreen(c: KaravanController, map: MapHooks) {
         view.keepScreenOn = true
         onDispose { view.keepScreenOn = false }
     }
-    LaunchedEffect(journey, c.location, c.approachLine) { map.onUpdate(journey, c.location, c.approachLine) }
+    LaunchedEffect(journey, c.shownLocation, c.approachLine, c.approachStraight) {
+        map.onUpdate(journey, c.shownLocation, c.approachLine, c.approachStraight)
+    }
 
     Box(Modifier.fillMaxSize()) {
         AndroidView(
@@ -457,7 +459,7 @@ private fun WalkScreen(c: KaravanController, map: MapHooks) {
  */
 @Composable
 private fun NavigationBanner(c: KaravanController) {
-    val here = c.location ?: return
+    val here = c.shownLocation ?: return
     val distance = c.distanceToTarget ?: return
     val target = c.targetPoint ?: return
     val instruction = c.instruction
