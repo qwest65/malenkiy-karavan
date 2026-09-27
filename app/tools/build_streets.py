@@ -68,9 +68,9 @@ WALK_AREAS = {
 # Дорожки, проложенные вручную по маршруту, нарисованному на месте: в OpenStreetMap
 # этих дорожек скверов нет. Концы подключаются к ближайшим улицам и дорожкам.
 MANUAL_PATHS = {
+    # По карте 2ГИС: от камня по дорожке сквера к собору и к Красногвардейской.
     "от камня к собору и на Красногвардейскую": [
-        (54.077456, 61.556294), (54.077699, 61.557231), (54.077832, 61.557124), (54.077887, 61.557278),
-        (54.077978, 61.557231), (54.078033, 61.557302),
+        (54.077456, 61.556294), (54.077776, 61.557391), (54.077955, 61.557250),
     ],
     "от верблюда к торговым рядам": [
         (54.081616, 61.561143), (54.081929, 61.560859), (54.081832, 61.560562),
@@ -78,11 +78,20 @@ MANUAL_PATHS = {
     "от рядов через сквер к площади": [
         (54.081832, 61.560562), (54.081985, 61.560396), (54.082375, 61.560017), (54.082778, 61.55908),
     ],
+    # От Компаса прямо вверх к краю площади у Ленина и вдоль него до Климова (дальше — по улицам).
     "от площади к Ленина и Климова": [
-        (54.082778, 61.55908), (54.082903, 61.558985), (54.08314, 61.55978),
+        (54.082778, 61.55908), (54.082982, 61.558902), (54.083226, 61.559715),
     ],
 }
-# Концы ручной дорожки ближе этого к сети подключаются к ней.
+# Участки, которые должны идти через заданные точки (названия точек маршрута → точки по пути).
+# От собора к верблюду — по Красногвардейской до улицы ВЛКСМ и по ней на север, как на месте.
+LEG_VIA = {
+    ("Свято-Троицкий собор", "Бронзовый верблюд"): [(54.078532, 61.559216)],
+}
+
+# Конец ручной дорожки ближе MANUAL_MERGE_M к узлу сети совпадает с этим узлом (без «хвостиков»
+# на перекрёстке), ближе MANUAL_LINK_M — соединяется с ним коротким отрезком.
+MANUAL_MERGE_M = 15.0
 MANUAL_LINK_M = 40.0
 
 # --- Геометрия ---------------------------------------------------------------------------
@@ -242,15 +251,22 @@ class Graph:
         manual_nodes = {}
         for line in manual:
             ids = []
-            for pt in line:
+            for k, pt in enumerate(line):
                 key = (round(pt[0], 6), round(pt[1], 6))
                 if key not in manual_nodes:
-                    manual_nodes[key] = len(coords)
-                    coords.append(pt)
+                    near = min(range(osm_count), key=lambda n: dist(coords[n], pt)) if osm_count else None
+                    if k in (0, len(line) - 1) and near is not None and dist(coords[near], pt) <= MANUAL_MERGE_M:
+                        manual_nodes[key] = near
+                    else:
+                        manual_nodes[key] = len(coords)
+                        coords.append(pt)
                 ids.append(manual_nodes[key])
             for a, b in zip(ids, ids[1:]):
-                edges.append((a, b, 1.0))
+                if a != b:
+                    edges.append((a, b, 1.0))
             for end in (ids[0], ids[-1]):
+                if end < osm_count:
+                    continue
                 near = min(range(osm_count), key=lambda n: dist(coords[n], coords[end]))
                 if dist(coords[near], coords[end]) <= MANUAL_LINK_M:
                     edges.append((end, near, 1.0))
@@ -332,7 +348,35 @@ class Graph:
         for pt in line + [q]:
             if dist(out[-1], pt) > 0.5:
                 out.append(pt)
-        return out
+        return despike(out)
+
+
+def despike(points):
+    """Убирает «хвостики»: короткий заход в сторону и возврат по той же линии."""
+    pts = list(points)
+    changed = True
+    while changed and len(pts) > 2:
+        changed = False
+        for i in range(1, len(pts) - 1):
+            a, b, c = pts[i - 1], pts[i], pts[i + 1]
+            there, back = dist(a, b), dist(b, c)
+            if min(there, back) < 25 and dist(a, c) < 0.3 * (there + back):
+                del pts[i]
+                changed = True
+                break
+    return pts
+
+
+def leg_route(graph, stops, titles, i, j):
+    """Путь от точки i к точке j, через заданные для этой пары точки (LEG_VIA)."""
+    via = LEG_VIA.get((titles[i], titles[j]))
+    if via is None and (titles[j], titles[i]) in LEG_VIA:
+        via = LEG_VIA[(titles[j], titles[i])][::-1]
+    points = [stops[i]] + list(via or []) + [stops[j]]
+    out = graph.route(points[0], points[1])
+    for a, b in zip(points[1:], points[2:]):
+        out += graph.route(a, b)[1:]
+    return despike(out)
 
 
 def length(points):
@@ -416,7 +460,7 @@ def main():
     legs, out_legs = {}, []
     for i in range(len(stops)):
         for j in range(i + 1, len(stops)):
-            pts = graph.route(stops[i], stops[j])
+            pts = leg_route(graph, stops, titles, i, j)
             meters, straight = length(pts), dist(stops[i], stops[j])
             print(f"{i + 1} → {j + 1}: {meters:.0f} м пешком, {straight:.0f} м по прямой")
             if meters > straight * 4 + 200:
