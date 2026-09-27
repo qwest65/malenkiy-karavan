@@ -8,6 +8,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import ru.cultureguide.kids.audio.ClipPlayer
+import ru.cultureguide.kids.content.ArrivalDetector
 import ru.cultureguide.kids.content.Clips
 import ru.cultureguide.kids.content.HeadingFusion
 import ru.cultureguide.kids.content.Instruction
@@ -114,8 +115,24 @@ class KaravanController(
     private var announcedTurnAt: Double? = null
     private var nearAnnounced = false
     private var wasOnPath = false
+    // Рассказ начинается, когда мы у точки и простояли там несколько секунд.
+    private var arrival: ArrivalDetector? = null
+    private var lastSpeed: Float? = null
+    private val main = android.os.Handler(android.os.Looper.getMainLooper())
+    private val arrivalTick = object : Runnable {
+        override fun run() {
+            // Стоящему телефону GPS присылает замеры реже — время ожидания отсчитываем сами.
+            if (screen == Screen.Walk && arrival?.check(SystemClock.elapsedRealtime()) == true) arrive()
+            main.postDelayed(this, ARRIVAL_TICK_MS)
+        }
+    }
+
+    init {
+        main.postDelayed(arrivalTick, ARRIVAL_TICK_MS)
+    }
     private var offFixes = 0
 
+    private var aheadLine: List<GeoPoint>? = null
     private var approachPath: WalkPath? = null
     private var approachTarget: Int? = null
     private var lastRerouteAt = Long.MIN_VALUE / 2
@@ -177,6 +194,7 @@ class KaravanController(
     fun onLocation(loc: Location) {
         val fix = LocationFix(loc.latitude, loc.longitude, if (loc.hasAccuracy()) loc.accuracy else null)
         location = fix
+        lastSpeed = loc.speed.takeIf { loc.hasSpeed() }
         headingFusion.onGps(
             loc.bearing.takeIf { loc.hasBearing() },
             loc.speed.takeIf { loc.hasSpeed() },
@@ -211,6 +229,7 @@ class KaravanController(
             nearAnnounced = false
             wasOnPath = false
             offFixes = 0
+            arrival = ArrivalDetector(route.stops[target].radiusMeters)
         }
         val radius = route.stops[target].radiusMeters
         val straight = distanceMeters(fix.lat, fix.lon, points[target].lat, points[target].lon)
@@ -228,7 +247,10 @@ class KaravanController(
             shownLocation = LocationFix(snapped.lat, snapped.lon, fix.accuracyMeters)
             distanceToTarget = progress.remainingMeters
             guide(active, progress.alongMeters)
+            // Как в навигаторе: пройденная часть линии исчезает, остаётся путь впереди.
+            aheadLine = active.remainingFrom(progress.alongMeters)
         } else {
+            aheadLine = null
             offFixes++
             shownLocation = fix
             distanceToTarget = straight
@@ -242,19 +264,22 @@ class KaravanController(
             nearAnnounced = true
             announce(Clips.NEAR)
         }
-        // Прибыли: близко к точке по GPS или по стрелке на линии — у зданий GPS уводит в сторону.
-        val shown = shownLocation ?: fix
-        val snappedStraight = distanceMeters(shown.lat, shown.lon, points[target].lat, points[target].lon)
-        if (screen == Screen.Walk && minOf(straight, snappedStraight) <= radius) arrive()
+        // Прибыли: в зоне точки по настоящему положению телефона и простояли там несколько секунд.
+        val arrived = arrival?.onFix(GeoPoint(fix.lat, fix.lon), straight, lastSpeed, SystemClock.elapsedRealtime()) == true
+        if (screen == Screen.Walk && arrived) arrive()
     }
 
-    /** Карта показывает путь «от меня», пока он есть; иначе — прямую, если пути нет совсем. */
+    /**
+     * Что рисовать до точки: путь впереди стрелки, если мы на линии; путь «от меня», если он
+     * построен заново; прямую, если пути нет совсем.
+     */
     private fun showApproach(target: Int) {
         val approach = approachPath?.takeIf { approachTarget == target }
         val hasLeg = journey.previousStop?.let { paths.between(it, target) } != null
         val here = location
-        approachStraight = approach == null && !hasLeg && here != null
+        approachStraight = aheadLine == null && approach == null && !hasLeg && here != null
         approachLine = when {
+            aheadLine != null -> aheadLine
             approach != null -> approach.points
             approachStraight -> listOf(GeoPoint(here!!.lat, here.lon), points[target])
             else -> null
@@ -321,6 +346,8 @@ class KaravanController(
     /** Подошли к точке — по GPS или по кнопке «Мы на месте!». */
     fun arrive() {
         val stop = journey.activeStop ?: return
+        // Вернулись на карту, не забрав вещь, — снова ждём, пока постоим у точки.
+        arrival?.reset()
         openedStop = stop
         quizChoice = null
         screen = Screen.Stop
@@ -451,6 +478,7 @@ class KaravanController(
     }
 
     fun dispose() {
+        main.removeCallbacks(arrivalTick)
         player.stop()
         router.shutdown()
         photos.shutdown()
@@ -497,6 +525,7 @@ class KaravanController(
         /** С какого расстояния Троша говорит «точка уже близко» и на экране появляется стрелка. */
         const val NEAR_METERS = 70.0
         const val HEADING_STEP_DEG = 3.0
+        const val ARRIVAL_TICK_MS = 1_000L
 
         // Новое имя файла: в «journey» версии 0.1.0 прогресс хранился в другом формате.
         const val PREFS = "journey2"

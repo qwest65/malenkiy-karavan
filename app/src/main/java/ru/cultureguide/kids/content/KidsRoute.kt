@@ -24,7 +24,7 @@ data class KidsStop(
     val radiusMeters: Double = DEFAULT_RADIUS_M
 ) {
     companion object {
-        const val DEFAULT_RADIUS_M = 25.0
+        const val DEFAULT_RADIUS_M = 20.0
     }
 }
 

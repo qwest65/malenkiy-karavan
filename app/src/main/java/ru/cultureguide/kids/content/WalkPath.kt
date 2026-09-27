@@ -49,6 +49,20 @@ class WalkPath(val points: List<GeoPoint>) {
         return points.last()
     }
 
+    /** Часть линии впереди: от точки в [alongMeters] от начала до конца. */
+    fun remainingFrom(alongMeters: Double): List<GeoPoint> {
+        val start = pointAt(alongMeters)
+        var passed = 0.0
+        val ahead = ArrayList<GeoPoint>()
+        ahead += start
+        for (i in segmentMeters.indices) {
+            passed += segmentMeters[i]
+            if (passed > alongMeters) ahead += points[i + 1]
+        }
+        if (ahead.size < 2) ahead += points.last()
+        return ahead
+    }
+
     fun progress(fix: LocationFix): PathProgress {
         var bestOff = Double.MAX_VALUE
         var bestRemaining = lengthMeters
