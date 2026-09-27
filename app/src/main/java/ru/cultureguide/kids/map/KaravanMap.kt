@@ -58,11 +58,11 @@ import ru.cultureguide.navigation.LocationFix
 
 /**
  * Карта прогулки на MapLibre с бесплатной подложкой OpenFreeMap (данные OpenStreetMap, без ключа).
- * Показываются только точки текущей прогулки, соединённые пешеходными линиями из [paths]:
- * пройденные участки серые, текущий — сплошной, следующие — пунктир. Если свернули с линии
- * или идём к первой точке, от нас к цели тянется синий пунктир — по улицам, если удалось
- * получить маршрут (см. [ApproachRouter]), иначе по прямой. Найденные вещи показываются
- * наклейками, ненайденные — знаком вопроса.
+ * Показываются только точки текущей прогулки, соединённые пешеходными линиями из [paths].
+ * Как в навигаторе, пройденного не видно: к текущей точке зелёная линия идёт от стрелки
+ * вперёд, следующие участки — бледно-зелёный пунктир. Если свернули или идём к первой точке,
+ * линия строится от нас по улицам; если пути нет совсем — к точке тянется синий пунктир
+ * по прямой. Найденные вещи показываются наклейками, ненайденные — знаком вопроса.
  *
  * Как в навигаторе, карта по умолчанию следует за нами ([following]): мы в центре,
  * карта повёрнута туда, куда идём, а наше место показано стрелкой. Стоит сдвинуть карту
@@ -199,23 +199,23 @@ class KaravanMap(
         loaded.addSource(GeoJsonSource(SRC_APPROACH))
         loaded.addSource(GeoJsonSource(SRC_STOPS))
         loaded.addSource(GeoJsonSource(SRC_ME))
+        // Пройденные участки не рисуются — как в навигаторе, за стрелкой линии нет.
         loaded.addLayer(
-            routeLayer(LAYER_ROUTE_DONE, STATE_DONE).withProperties(
-                lineColor(DONE_COLOR),
-                lineWidth(5f)
+            routeLayer(LAYER_ROUTE_NEXT, STATE_NEXT).withProperties(
+                lineColor(NEXT_COLOR),
+                lineWidth(5f),
+                lineDasharray(arrayOf(1.5f, 1.2f))
             )
         )
         loaded.addLayer(
-            routeLayer(LAYER_ROUTE_NEXT, STATE_NEXT).withProperties(
-                lineColor(ROUTE_COLOR),
-                lineWidth(4f),
-                lineOpacity(0.6f),
-                lineDasharray(arrayOf(1.5f, 1.5f))
+            routeLayer(LAYER_ROUTE_ACTIVE_CASING, STATE_ACTIVE).withProperties(
+                lineColor(LINE_CASING),
+                lineWidth(11f)
             )
         )
         loaded.addLayer(
             routeLayer(LAYER_ROUTE_ACTIVE, STATE_ACTIVE).withProperties(
-                lineColor(ROUTE_COLOR),
+                lineColor(LINE_COLOR),
                 lineWidth(7f)
             )
         )
@@ -229,12 +229,22 @@ class KaravanMap(
                     lineDasharray(arrayOf(0.5f, 2f))
                 )
         )
-        // Путь «от меня до точки» по улицам выглядит как текущий участок маршрута: его и заменяет.
+        // Путь впереди стрелки (или «от меня до точки») выглядит как текущий участок маршрута: его и заменяет.
+        loaded.addLayer(
+            LineLayer(LAYER_APPROACH_CASING, SRC_APPROACH)
+                .withFilter(Expression.eq(Expression.get(PROP_STATE), STATE_ACTIVE))
+                .withProperties(
+                    lineColor(LINE_CASING),
+                    lineWidth(11f),
+                    lineCap(Property.LINE_CAP_ROUND),
+                    lineJoin(Property.LINE_JOIN_ROUND)
+                )
+        )
         loaded.addLayer(
             LineLayer(LAYER_APPROACH_ROUTE, SRC_APPROACH)
                 .withFilter(Expression.eq(Expression.get(PROP_STATE), STATE_ACTIVE))
                 .withProperties(
-                    lineColor(ROUTE_COLOR),
+                    lineColor(LINE_COLOR),
                     lineWidth(7f),
                     lineCap(Property.LINE_CAP_ROUND),
                     lineJoin(Property.LINE_JOIN_ROUND)
@@ -295,7 +305,8 @@ class KaravanMap(
                         k + 1 == journey.position -> STATE_ACTIVE
                         else -> STATE_NEXT
                     }
-                    // Путь построен заново от нас — старая линия к этой точке больше не нужна.
+                    // Пройденное не рисуем; путь к текущей точке рисуется от стрелки (слой SRC_APPROACH).
+                    if (state == STATE_DONE) return@mapIndexedNotNull null
                     if (state == STATE_ACTIVE && approach != null && !approachStraight) return@mapIndexedNotNull null
                     Feature.fromGeometry(lineOf(leg)).apply { addStringProperty(PROP_STATE, state) }
                 }
@@ -425,7 +436,8 @@ class KaravanMap(
         const val SRC_APPROACH = "karavan-approach"
         const val SRC_STOPS = "karavan-stops"
         const val SRC_ME = "karavan-me"
-        const val LAYER_ROUTE_DONE = "karavan-route-done"
+        const val LAYER_ROUTE_ACTIVE_CASING = "karavan-route-active-casing"
+        const val LAYER_APPROACH_CASING = "karavan-approach-casing"
         const val LAYER_ROUTE_NEXT = "karavan-route-next"
         const val LAYER_ROUTE_ACTIVE = "karavan-route-active"
         const val LAYER_APPROACH = "karavan-approach-line"
@@ -454,6 +466,9 @@ class KaravanMap(
         const val FIT_PADDING_PX = 120
         val ROUTE_COLOR = Color.rgb(0xD2, 0x46, 0x3C)
         val ME_COLOR = Color.rgb(0x2F, 0x6F, 0xB5)
-        val DONE_COLOR = Color.rgb(0xB5, 0xA8, 0x96)
+        /** Линия маршрута: зелёная с тёмной обводкой, следующий участок — бледно-зелёный пунктир. */
+        val LINE_COLOR = Color.rgb(0x27, 0xA5, 0x5A)
+        val LINE_CASING = Color.rgb(0x16, 0x69, 0x3A)
+        val NEXT_COLOR = Color.rgb(0x8F, 0xD3, 0xA8)
     }
 }

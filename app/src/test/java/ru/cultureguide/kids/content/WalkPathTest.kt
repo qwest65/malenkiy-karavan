@@ -86,6 +86,16 @@ class WalkPathTest {
     }
 
     @Test
+    fun remainingPartStartsAtTheArrow() {
+        val ahead = path.remainingFrom(111.3 + 65.45)
+        assertEquals(2, ahead.size)
+        assertEquals(b.lat, ahead.first().lat, 1e-6)
+        assertEquals(c, ahead.last())
+        assertEquals(path.lengthMeters, WalkPath(path.remainingFrom(0.0)).lengthMeters, 0.01)
+        assertEquals(listOf(c, c), path.remainingFrom(1e6))
+    }
+
+    @Test
     fun withoutPathUsesStraightLine() {
         assertEquals(77.0, walkingMeters(null, LocationFix(a.lat, a.lon), straightMeters = 77.0), 0.0)
     }

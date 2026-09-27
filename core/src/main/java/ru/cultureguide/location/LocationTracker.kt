@@ -80,8 +80,8 @@ class LocationTracker(
 
     private companion object {
         val PROVIDERS = listOf(LocationManager.GPS_PROVIDER, LocationManager.NETWORK_PROVIDER)
-        const val MIN_TIME_MS = 2_000L
-        const val MIN_DISTANCE_M = 2f
+        const val MIN_TIME_MS = 1_000L
+        const val MIN_DISTANCE_M = 0f
         const val STALE_MS = 10_000L
     }
 }
