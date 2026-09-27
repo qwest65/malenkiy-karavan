@@ -34,7 +34,6 @@ data class KidsRoute(
     val title: String,
     val subtitle: String,
     val cityId: Long,
-    val duration: String,
     val badge: String,
     val intro: String,
     /** Троша прощается после прогулки, пройденной до конца. */
@@ -103,7 +102,6 @@ object KidsRouteLoader {
             title = json.getString("title"),
             subtitle = json.optString("subtitle"),
             cityId = json.getLong("city_id"),
-            duration = json.optString("duration"),
             badge = json.getString("badge"),
             intro = json.getJSONObject("intro").getString("trosha"),
             finale = json.optJSONObject("finale")?.optString("trosha").orEmpty(),
