@@ -65,6 +65,29 @@ WALK_AREAS = {
 }
 
 
+# Дорожки, проложенные вручную по маршруту, нарисованному на месте: в OpenStreetMap
+# этих дорожек скверов нет. Концы подключаются к ближайшим улицам и дорожкам.
+MANUAL_PATHS = {
+    "от камня к собору и на Красногвардейскую": [
+        (54.077456, 61.556294), (54.077526, 61.556614), (54.077581, 61.556911), (54.07763, 61.557148),
+        (54.077734, 61.557231), (54.077839, 61.557148), (54.077978, 61.557231), (54.078047, 61.55729),
+    ],
+    "от верблюда к торговым рядам": [
+        (54.081616, 61.561143), (54.081888, 61.560942), (54.08186, 61.560586), (54.081811, 61.560372),
+    ],
+    "от рядов через сквер к площади": [
+        (54.081811, 61.560372), (54.081888, 61.560527), (54.082068, 61.560313), (54.082208, 61.56023),
+        (54.08234, 61.560088), (54.082333, 61.559839), (54.082402, 61.559661), (54.0825, 61.559519),
+        (54.082583, 61.559317), (54.082667, 61.559151), (54.082778, 61.55908),
+    ],
+    "от площади к Ленина и Климова": [
+        (54.082778, 61.55908), (54.082869, 61.558973), (54.082952, 61.559128), (54.083022, 61.559341),
+        (54.08307, 61.559531), (54.083133, 61.55972), (54.083189, 61.559792),
+    ],
+}
+# Концы ручной дорожки ближе этого к сети подключаются к ней.
+MANUAL_LINK_M = 40.0
+
 # --- Геометрия ---------------------------------------------------------------------------
 
 
@@ -196,7 +219,7 @@ class Graph:
             self.adj[b].append((a, length * f))
 
     @staticmethod
-    def build(nodes, kept):
+    def build(nodes, kept, manual=()):
         index, coords, edges = {}, [], []
 
         def node(osm_id):
@@ -217,6 +240,23 @@ class Graph:
                     continue
                 seen.add(key)
                 edges.append((a, b, factor))
+        osm_count = len(coords)
+        # Ручные дорожки: свои узлы, концы и совпадающие точки соединяются.
+        manual_nodes = {}
+        for line in manual:
+            ids = []
+            for pt in line:
+                key = (round(pt[0], 6), round(pt[1], 6))
+                if key not in manual_nodes:
+                    manual_nodes[key] = len(coords)
+                    coords.append(pt)
+                ids.append(manual_nodes[key])
+            for a, b in zip(ids, ids[1:]):
+                edges.append((a, b, 1.0))
+            for end in (ids[0], ids[-1]):
+                near = min(range(osm_count), key=lambda n: dist(coords[n], coords[end]))
+                if dist(coords[near], coords[end]) <= MANUAL_LINK_M:
+                    edges.append((end, near, 1.0))
         graph = Graph(coords, edges)
         return graph.largest_component()
 
@@ -321,6 +361,8 @@ def render(kept, dropped, stops, titles, order, legs, radii):
         ax.fill([p[1] * kx for p in ring], [p[0] for p in ring], color="#7cc84a", alpha=0.25, zorder=0)
     for _, _, pts in kept:
         ax.plot([p[1] * kx for p in pts], [p[0] for p in pts], color="#9a9a9a", lw=1.4, zorder=2)
+    for pts in MANUAL_PATHS.values():
+        ax.plot([p[1] * kx for p in pts], [p[0] for p in pts], color="#2e9e4f", lw=2.2, zorder=2)
     for k, (i, j) in enumerate(zip(order, order[1:])):
         pts = legs[(i, j)]
         xs, ys = [p[1] * kx for p in pts], [p[0] for p in pts]
@@ -346,7 +388,7 @@ def render(kept, dropped, stops, titles, order, legs, radii):
     ax.set_yticks([])
     total = sum(length(legs[(i, j)]) for i, j in zip(order, order[1:]))
     ax.set_title(f"«Весь маршрут»: {total:.0f} м. Серое — улицы и тротуары, по которым строим путь;\n"
-                 f"розовый пунктир — отброшенные дворы, проезды и тропинки; зелёное — скверы; круги — радиус прибытия", fontsize=12)
+                 f"розовый пунктир — отброшенные дворы, проезды и тропинки; зелёное — скверы и дорожки, проложенные вручную; круги — радиус прибытия", fontsize=12)
     PREVIEW.parent.mkdir(parents=True, exist_ok=True)
     fig.tight_layout()
     fig.savefig(PREVIEW)
@@ -368,7 +410,7 @@ def main():
     west = min(p[1] for p in stops) - MARGIN * 1.7
     east = max(p[1] for p in stops) + MARGIN * 1.7
     nodes, kept, dropped = load_streets(south, west, north, east)
-    graph = Graph.build(nodes, kept)
+    graph = Graph.build(nodes, kept, MANUAL_PATHS.values())
 
     for i, p in enumerate(stops):
         _, _, point, d = graph.snap(p)
