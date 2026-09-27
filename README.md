@@ -66,6 +66,8 @@
 3. Перед прогулкой разрешите доступ к геолокации — так Троша узнает, что вы дошли до точки.
 
 > Требуется Android 8.0 (API 26) или новее. Новые версии ставятся поверх старых, альбом сохраняется.
+>
+> С версии 0.5.2 APK подписан релизным ключом, а имя пакета — `ru.malenkiykaravan`. Приложение ставится как новое: версию 0.5.1 и старше лучше удалить, её альбом не переносится.
 
 Свежие сборки из рабочих веток публикуются как пред-релиз [`preview`](https://github.com/qwest65/malenkiy-karavan/releases/tag/preview): они для тестирования и могут быть нестабильны.
 
@@ -150,6 +152,8 @@ Workflow [`.github/workflows/android.yml`](.github/workflows/android.yml) зап
 |---|---|
 | `main` | тесты и сборка, затем GitHub Release `v<версия>` с `MalenkiyKaravan.apk` и `SHA256SUMS.txt`, помеченный как Latest |
 | `claude/**` | тесты и сборка, затем пред-релиз `preview` (не становится Latest) |
+
+**Подпись.** APK подписывается релизным ключом из секретов репозитория: `RELEASE_KEYSTORE_BASE64` (файл ключа в base64, алиас `karavan`) и `RELEASE_KEYSTORE_PASSWORD`. Ключ и пароль в репозиторий не попадают. Без секретов CI собирает debug-версию с ключом `app/debug.keystore` и предупреждает, что она не годится для RuStore. Отпечаток сертификата выводится в сводке каждой сборки.
 
 Постоянная ссылка на последнюю версию: https://github.com/qwest65/malenkiy-karavan/releases/latest/download/MalenkiyKaravan.apk
 

@@ -8,11 +8,12 @@ android {
     namespace = "ru.cultureguide.kids"
     compileSdk = 35
     defaultConfig {
-        applicationId = "ru.cultureguide.kids"
+        // Имя пакета в RuStore — после публикации его не изменить. Код остаётся в пакете ru.cultureguide.kids.
+        applicationId = "ru.malenkiykaravan"
         minSdk = 26
         targetSdk = 35
-        versionCode = 9
-        versionName = "0.5.1"
+        versionCode = 10
+        versionName = "0.5.2"
     }
     signingConfigs {
         // Постоянный debug-ключ из репозитория: каждая сборка CI ставится поверх предыдущей без удаления
@@ -22,6 +23,22 @@ android {
             storePassword = "android"
             keyAlias = "androiddebugkey"
             keyPassword = "android"
+        }
+        // Релизный ключ для RuStore. Сам ключ и пароль лежат в секретах GitHub и в репозиторий
+        // не попадают; CI передаёт их через переменные окружения (см. .github/workflows/android.yml).
+        System.getenv("RELEASE_KEYSTORE_FILE")?.takeIf { it.isNotBlank() }?.let { path ->
+            create("release") {
+                storeFile = file(path)
+                storePassword = System.getenv("RELEASE_KEYSTORE_PASSWORD")
+                keyAlias = System.getenv("RELEASE_KEY_ALIAS")?.takeIf { it.isNotBlank() } ?: "karavan"
+                keyPassword = System.getenv("RELEASE_KEY_PASSWORD")?.takeIf { it.isNotBlank() }
+                    ?: System.getenv("RELEASE_KEYSTORE_PASSWORD")
+            }
+        }
+    }
+    buildTypes {
+        release {
+            signingConfig = signingConfigs.findByName("release")
         }
     }
     buildFeatures { compose = true }
