@@ -68,7 +68,11 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.animation.core.Animatable
 import androidx.compose.ui.draw.rotate
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.layout.boundsInRoot
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalView
@@ -595,15 +599,43 @@ private fun StopScreen(c: KaravanController, photo: PhotoHooks) {
             revealed = true
         }
     }
+    // Праздник находки — один раз за точку, когда Троша говорит, что вещь нашлась.
+    var celebrating by remember(index) { mutableStateOf(false) }
+    var landed by remember(index) { mutableStateOf(false) }
+    var backpackCenter by remember { mutableStateOf<Offset?>(null) }
+    val backpackBounce = remember { Animatable(1f) }
+    LaunchedEffect(revealed) {
+        if (revealed && c.startCelebration(index)) celebrating = true
+    }
+    LaunchedEffect(landed) {
+        if (landed) {
+            backpackBounce.animateTo(1.5f, tween(140))
+            backpackBounce.animateTo(1f, spring(dampingRatio = Spring.DampingRatioMediumBouncy))
+        }
+    }
+    val walkFound = journey.walkFound.size + if (landed && index !in journey.walkFound) 1 else 0
     var parentOpen by remember(index) { mutableStateOf(false) }
     // Правильный ответ записан первым; на экране варианты перемешаны.
     val optionOrder = remember(index) { stop.question.options.indices.shuffled() }
     val choice = c.quizChoice
     val answeredRight = choice != null && stop.question.isRight(choice)
 
+    Box(Modifier.fillMaxSize()) {
     ScrollPage {
-        Row(Modifier.fillMaxWidth()) {
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
             TextButton(onClick = c::backToWalk) { Text("← К карте", color = Karavan.Muted) }
+            // Рюкзак Троши: сюда улетает найденная вещь.
+            Row(
+                Modifier
+                    .onGloballyPositioned { backpackCenter = it.boundsInRoot().center }
+                    .scale(backpackBounce.value)
+                    .background(Karavan.Card, RoundedCornerShape(20.dp))
+                    .padding(horizontal = 12.dp, vertical = 6.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text("🎒", fontSize = 26.sp)
+                Text(" $walkFound из ${journey.plan.size}", fontSize = 17.sp, fontWeight = FontWeight.Bold, color = Karavan.Ink)
+            }
         }
         Text("Точка ${journey.position + 1} из ${journey.plan.size}", fontSize = 15.sp, color = Karavan.Muted)
         Text(stop.title, fontSize = 26.sp, fontWeight = FontWeight.Black, color = Karavan.Ink, textAlign = TextAlign.Center)
@@ -669,6 +701,17 @@ private fun StopScreen(c: KaravanController, photo: PhotoHooks) {
             BigButton(if (last) "Ура! Завершить прогулку" else "Готово! Идём дальше", Modifier.weight(1f), onClick = c::completeStop)
         }
     }
+    if (celebrating) {
+        Celebration(
+            sticker = stop.sticker,
+            title = "Ура! Нашлось!",
+            subtitle = stop.item.replaceFirstChar { it.uppercase() },
+            flyTo = backpackCenter,
+            onLanded = { landed = true },
+            onDone = { celebrating = false }
+        )
+    }
+    }
 }
 
 /** Фото на память с этой точки: снять камерой или выбрать из галереи. */
@@ -704,6 +747,9 @@ private fun FinaleScreen(c: KaravanController) {
         animationSpec = infiniteRepeatable(tween(900), RepeatMode.Reverse),
         label = "badgeScale"
     )
+    // Значок за весь маршрут — с салютом во весь экран, один раз.
+    var celebrating by remember(result) { mutableStateOf(result.complete && c.startCelebration(FINALE_CELEBRATION)) }
+    Box(Modifier.fillMaxSize()) {
     ScrollPage {
         if (result.complete) {
             Text("Ура!", fontSize = 40.sp, fontWeight = FontWeight.Black, color = Karavan.Red)
@@ -739,7 +785,21 @@ private fun FinaleScreen(c: KaravanController) {
         BigButton("Мой альбом", onClick = c::openAlbum)
         SoftButton("На главную", c::goHome)
     }
+    if (celebrating) {
+        Celebration(
+            sticker = c.route.badge,
+            title = "Ура!",
+            subtitle = "Ты — Юный караванщик!",
+            flyTo = null,
+            fireworks = true,
+            onDone = { celebrating = false }
+        )
+    }
+    }
 }
+
+/** Отметка «финал уже отпраздновали» — отдельно от номеров точек. */
+private const val FINALE_CELEBRATION = -1
 
 @Composable
 private fun AlbumScreen(c: KaravanController, photo: PhotoHooks) {

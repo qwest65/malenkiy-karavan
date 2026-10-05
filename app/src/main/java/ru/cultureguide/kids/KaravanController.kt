@@ -143,6 +143,12 @@ class KaravanController(
     private var lastOnlineRequestAt = Long.MIN_VALUE / 2
     private var routeRequestInFlight = false
 
+    // Что уже отпраздновали на этой прогулке, чтобы, вернувшись к точке, не праздновать снова.
+    private val celebrated = mutableSetOf<Int>()
+
+    /** Можно ли праздновать находку на точке [key]: true только в первый раз за прогулку. */
+    fun startCelebration(key: Int): Boolean = celebrated.add(key)
+
     val parentStoryPlaying: Boolean get() = player.playing == Clips.parent(openedStop)
 
     /** Длина прогулки по выбранным точкам вдоль пешеходных линий; null — линий нет. */
@@ -168,6 +174,7 @@ class KaravanController(
         if (selection.isEmpty()) return
         stopAudio()
         journey = journey.start(selection).also(::save)
+        celebrated.clear()
         screen = Screen.Walk
         player.play(Clips.INTRO, Clips.ROAD)
         location?.let(::updateGuidance)
