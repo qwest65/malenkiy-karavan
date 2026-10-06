@@ -1,0 +1,62 @@
+name: RuStore
+
+# Запуск вручную (Actions → RuStore → Run workflow).
+#   check   — войти по ключу и показать версии в RuStore, ничего не меняя;
+#   publish — загрузить APK из последнего релиза GitHub с текстом rustore/whats_new.txt
+#             и отправить на модерацию.
+# Секреты: RUSTORE_KEY_ID, RUSTORE_PRIVATE_KEY (консоль RuStore → Компания → API RuStore).
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: "check — только проверка, publish — загрузить и отправить на модерацию"
+        type: choice
+        options: [check, publish]
+        default: check
+
+permissions:
+  contents: read
+
+concurrency:
+  group: rustore
+  cancel-in-progress: false
+
+jobs:
+  rustore:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - run: pip install requests cryptography
+
+      - name: APK from latest release
+        if: inputs.mode == 'publish'
+        id: apk
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG=$(gh release view --repo "$GITHUB_REPOSITORY" --json tagName -q .tagName)
+          gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --pattern MalenkiyKaravan.apk --dir dist
+          CODE=$(grep -oE 'versionCode = [0-9]+' app/build.gradle.kts | grep -oE '[0-9]+')
+          echo "Релиз $TAG, versionCode $CODE"
+          echo "code=$CODE" >> "$GITHUB_OUTPUT"
+
+      - name: RuStore ${{ inputs.mode }}
+        env:
+          RUSTORE_KEY_ID: ${{ secrets.RUSTORE_KEY_ID }}
+          RUSTORE_PRIVATE_KEY: ${{ secrets.RUSTORE_PRIVATE_KEY }}
+        run: |
+          if [ "${{ inputs.mode }}" = publish ]; then
+            python app/tools/rustore_publish.py publish \
+              --apk dist/MalenkiyKaravan.apk \
+              --whats-new rustore/whats_new.txt \
+              --version-code "${{ steps.apk.outputs.code }}"
+          else
+            python app/tools/rustore_publish.py check
+          fi

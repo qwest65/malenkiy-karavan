@@ -3,6 +3,10 @@ name: Android APK
 on:
   push:
     branches: ["main", "claude/**"]
+    paths-ignore:
+      - "rustore/**"
+      - "app/tools/rustore_publish.py"
+      - ".github/workflows/rustore.yml"
   workflow_dispatch:
 
 permissions:
