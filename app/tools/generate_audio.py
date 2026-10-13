@@ -156,6 +156,43 @@ def generate_yandex_samples(route, out):
     (out / "NOTES.md").write_text("\n".join(notes) + "\n", encoding="utf-8")
 
 
+def yandex_v3_say(text, voice, role=None, speed=1.0, pitch_shift=None):
+    """Новые голоса SpeechKit (API v3): ответ — поток JSON-строк с кусками звука в base64."""
+    import base64
+    import os
+
+    import requests
+
+    hints = [{"voice": voice}, {"speed": speed}]
+    if role:
+        hints.append({"role": role})
+    if pitch_shift:
+        hints.append({"pitchShift": pitch_shift})
+    body = {"text": text, "hints": hints, "loudnessNormalizationType": "LUFS",
+            "outputAudioSpec": {"rawAudio": {"audioEncoding": "LINEAR16_PCM", "sampleRateHertz": YANDEX_RATE}}}
+    r = requests.post("https://tts.api.cloud.yandex.net/tts/v3/utteranceSynthesis", json=body, timeout=120,
+                      headers={"Authorization": f"Api-Key {os.environ['YANDEX_SPEECHKIT_KEY'].strip()}"})
+    if r.status_code != 200:
+        raise RuntimeError(f"HTTP {r.status_code}: {r.text[:300]}")
+    pcm = b"".join(base64.b64decode(json.loads(line)["result"]["audioChunk"]["data"])
+                   for line in r.text.splitlines() if line.strip())
+    return np.frombuffer(pcm, dtype="<i2").astype(np.float32) / 32768, YANDEX_RATE
+
+
+def generate_yandex_v3_samples(route, out):
+    """По одному новому голосу (API v3) для рассказчика и для Троши."""
+    out.mkdir(parents=True, exist_ok=True)
+    stop = route["stops"][1]
+    write(out / "v3-narrator-alexander-good.ogg", *yandex_v3_say(stop["narrator"], "alexander", "good", 0.95))
+    try:
+        audio = yandex_v3_say(stop["trosha"], "masha", "friendly", 1.1, pitch_shift=200)
+    except RuntimeError as error:
+        # Если сдвиг тона не принят — тот же голос без него.
+        print(f"  сдвиг тона не принят: {error}")
+        audio = yandex_v3_say(stop["trosha"], "masha", "friendly", 1.1)
+    write(out / "v3-trosha-masha-friendly.ogg", *audio)
+
+
 # --- Общее -------------------------------------------------------------------------------
 
 # Ударения, которые синтезатор ставит неверно. Знак ударения (U+0301) добавляется только
@@ -314,12 +351,15 @@ def main():
     parser.add_argument("--trosha-pitch", default="+25Hz", help="edge: тон Троши, например +25Hz")
     parser.add_argument("--samples", type=pathlib.Path, help="вместо озвучки — образцы голосов Edge в эту папку")
     parser.add_argument("--yandex-samples", type=pathlib.Path, help="образцы голосов Яндекс SpeechKit в эту папку")
+    parser.add_argument("--yandex-v3-samples", type=pathlib.Path, help="образцы новых голосов SpeechKit (API v3)")
     args = parser.parse_args()
     if args.engine == "edge":
         args.narrator = args.narrator or "ru-RU-DmitryNeural"
         args.trosha = args.trosha or "ru-RU-SvetlanaNeural"
     route = json.loads(ROUTE.read_text(encoding="utf-8"))
-    if args.yandex_samples:
+    if args.yandex_v3_samples:
+        generate_yandex_v3_samples(route, args.yandex_v3_samples)
+    elif args.yandex_samples:
         generate_yandex_samples(route, args.yandex_samples)
     elif args.samples:
         generate_samples(route, args.samples)

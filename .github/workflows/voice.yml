@@ -8,7 +8,7 @@ on:
       mode:
         description: "samples — образцы Edge; yandex-samples — образцы Яндекс SpeechKit (проверка ключа); all — переозвучить приложение"
         type: choice
-        options: ["samples", "yandex-samples", "all"]
+        options: ["samples", "yandex-samples", "yandex-v3-samples", "all"]
         default: "samples"
       narrator:
         description: "Голос рассказчика"
@@ -67,6 +67,16 @@ jobs:
             --notes-file ysamples/NOTES.md \
             --prerelease \
             --latest=false
+
+      # Новые голоса SpeechKit (API v3) — добавляются к образцам Яндекса в том же пред-релизе.
+      - name: Yandex v3 voice samples
+        if: inputs.mode == 'yandex-v3-samples'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          YANDEX_SPEECHKIT_KEY: ${{ secrets.YANDEX_SPEECHKIT_KEY }}
+        run: |
+          python3 app/tools/generate_audio.py --yandex-v3-samples y3samples
+          gh release upload voice-samples-yandex y3samples/*.ogg --clobber
 
       - name: Voice samples
         if: inputs.mode == 'samples'
