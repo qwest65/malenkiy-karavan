@@ -210,6 +210,66 @@ def generate_yandex_v3_trosha(route, out):
           librosa.effects.pitch_shift(samples, sr=rate, n_steps=4).astype(np.float32), rate)
 
 
+# Ударения для Яндекса: «+» перед ударной гласной. Слова — те же, что синтезаторы читали неверно.
+YANDEX_STRESS = {
+    r"реки": "рек+и",
+    r"города": "г+орода",
+    r"двадцатого": "двадц+атого",
+    r"Троицк(\w*)": "Тр+оицк\\1",
+    r"гербе": "г+ербе",
+    r"казаки": "казак+и",
+    r"сыром": "с+ыром",
+    r"ворону": "вор+ону",
+}
+
+
+def yandex_text(text):
+    for written, spoken in SPOKEN.items():
+        text = text.replace(written, spoken)
+    for word, spoken in YANDEX_STRESS.items():
+        pattern = re.compile(rf"\b{word}\b", re.IGNORECASE)
+
+        def keep_case(match, spoken=spoken, pattern=pattern):
+            out = pattern.sub(spoken, match.group(0).lower())
+            return out[0].upper() + out[1:] if match.group(0)[0].isupper() else out
+
+        text = pattern.sub(keep_case, text)
+    return text.replace("…", ".")
+
+
+def yandex_chunks(text, limit=240):
+    """Длинную справку режем по предложениям: так надёжнее для API v3."""
+    parts, cur = [], ""
+    for sentence in re.split(r"(?<=[.!?…])\s+", text):
+        if cur and len(cur) + 1 + len(sentence) > limit:
+            parts.append(cur)
+            cur = sentence
+        else:
+            cur = f"{cur} {sentence}".strip()
+    if cur:
+        parts.append(cur)
+    return parts
+
+
+def yandex_narrate(text, voice, role):
+    pieces = []
+    rate = YANDEX_RATE
+    for chunk in yandex_chunks(yandex_text(text)):
+        samples, rate = yandex_v3_say(chunk, voice, role, 1.0)
+        pieces += [samples, np.zeros(int(rate * 0.25), dtype=np.float32)]
+    return np.concatenate(pieces[:-1]), rate
+
+
+def generate_yandex_narrator(route, catalog, voice, role):
+    """Переозвучивает только рассказчика (рассказы, вопросы, справки для взрослых). Троша не трогается."""
+    for n, stop in enumerate(route["stops"], start=1):
+        write(AUDIO / f"stop{n}_narrator.ogg", *yandex_narrate(stop["narrator"], voice, role), tail=PAUSE)
+        write(AUDIO / f"stop{n}_task.ogg", *yandex_narrate(stop["question"]["voice"], voice, role), tail=PAUSE)
+        place = catalog[stop["place_id"]]
+        text = f"{place['name']}. {place['description']}".replace("\n", " ")
+        write(AUDIO / f"stop{n}_parent.ogg", *yandex_narrate(text, voice, role), tail=PAUSE)
+
+
 # --- Общее -------------------------------------------------------------------------------
 
 # Ударения, которые синтезатор ставит неверно. Знак ударения (U+0301) добавляется только
@@ -370,12 +430,17 @@ def main():
     parser.add_argument("--yandex-samples", type=pathlib.Path, help="образцы голосов Яндекс SpeechKit в эту папку")
     parser.add_argument("--yandex-v3-samples", type=pathlib.Path, help="образцы новых голосов SpeechKit (API v3)")
     parser.add_argument("--yandex-v3-trosha", type=pathlib.Path, help="варианты Троши с поднятым тоном (API v3)")
+    parser.add_argument("--yandex-narrator", help="переозвучить только рассказчика голосом Яндекса, например ermil")
+    parser.add_argument("--yandex-role", default="neutral", help="амплуа голоса Яндекса")
     args = parser.parse_args()
     if args.engine == "edge":
         args.narrator = args.narrator or "ru-RU-DmitryNeural"
         args.trosha = args.trosha or "ru-RU-SvetlanaNeural"
     route = json.loads(ROUTE.read_text(encoding="utf-8"))
-    if args.yandex_v3_trosha:
+    if args.yandex_narrator:
+        catalog = {p["id"]: p for p in json.loads(CATALOG.read_text(encoding="utf-8"))["places"]}
+        generate_yandex_narrator(route, catalog, args.yandex_narrator, args.yandex_role)
+    elif args.yandex_v3_trosha:
         generate_yandex_v3_trosha(route, args.yandex_v3_trosha)
     elif args.yandex_v3_samples:
         generate_yandex_v3_samples(route, args.yandex_v3_samples)
