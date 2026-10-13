@@ -80,7 +80,7 @@
 | UI | Jetpack Compose, Material 3 |
 | Карта | [MapLibre Native](https://maplibre.org/) (`android-sdk-opengl`), подложка [OpenFreeMap](https://openfreemap.org/), данные © OpenStreetMap |
 | Пешеходные маршруты | своя карта улиц центра из OpenStreetMap без дворов (поиск пути прямо на телефоне); вдали от центра — [OSRM](https://project-osrm.org/), профиль foot |
-| Озвучка | заранее записанные Ogg Vorbis: голоса Microsoft Edge ([edge-tts](https://github.com/rany2/edge-tts)) или офлайн-голоса [Piper](https://github.com/rhasspy/piper) (CC0) |
+| Озвучка | заранее записанные Ogg Vorbis: рассказчик — Яндекс SpeechKit (голос Ермил), Троша — голос, созданный в [ElevenLabs](https://elevenlabs.io) |
 | Хранение | SQLite (каталог мест), SharedPreferences (прогресс и альбом), фото и коллаж — во внутренней памяти приложения |
 | Сборка | Gradle 8.9 (wrapper), Android Gradle Plugin 8.7, JDK 17 |
 | CI/CD | GitHub Actions → GitHub Releases |
@@ -137,7 +137,7 @@ cd malenkiy-karavan
 
 ## Озвучка
 
-Голоса — нейросетевые голоса Microsoft Edge («Прочесть вслух»): Дмитрий и Светлана, через библиотеку [edge-tts](https://github.com/rany2/edge-tts). Бесплатно и без ключа. Это неофициальный доступ к сервису Microsoft: для бесплатного приложения подходит, для платного — рискованно. Скрипт — [`app/tools/generate_audio.py`](app/tools/generate_audio.py), запуск — workflow [`voice.yml`](.github/workflows/voice.yml): **Actions → Voice → Run workflow**.
+Голоса: **рассказчик** — Яндекс SpeechKit (API v3, голос Ермил, нейтральное амплуа), **Троша** — голос «Троша — Маленький караван», созданный в ElevenLabs (Eleven v3; фразы Троши лежат готовыми файлами в `assets/kids/audio`). Рассказчика переозвучивает workflow [`voice.yml`](.github/workflows/voice.yml) в режиме `yandex-narrator` (нужен секрет `YANDEX_SPEECHKIT_KEY`); ударения задаются знаком «+» в `YANDEX_STRESS` скрипта [`app/tools/generate_audio.py`](app/tools/generate_audio.py), инициалы в озвучке раскрываются в полные имена. Режим `all` (голоса Microsoft Edge) перезапишет и Трошу — для текущей озвучки им не пользоваться.
 
 - Режим `samples` публикует образцы голосов в пред-релиз [`voice-samples`](https://github.com/qwest65/malenkiy-karavan/releases/tag/voice-samples) — их можно послушать в браузере.
 - Режим `all` переозвучивает всё приложение, включая подробные справки для взрослых из `catalog.json`, выбранными голосами (рассказчик, Троша, тон Троши), коммитит файлы в ветку, на которой запущен, и собирает APK.

@@ -191,6 +191,14 @@ private fun HomeScreen(c: KaravanController, ensureLocation: () -> Unit) {
         if (journey.found.isNotEmpty() || journey.badge) {
             TextButton(onClick = { confirmReset = true }) { Text("Очистить альбом", color = Karavan.Muted) }
         }
+        // Авторство голосов: бесплатный тариф ElevenLabs требует указывать сервис.
+        Text(
+            "Голоса: рассказчик — Яндекс SpeechKit, Троша — ElevenLabs",
+            fontSize = 12.sp,
+            color = Karavan.Muted,
+            textAlign = TextAlign.Center,
+            modifier = Modifier.fillMaxWidth()
+        )
     }
     if (confirmFinish) {
         FinishDialog(onConfirm = { confirmFinish = false; c.finishWalk() }, onDismiss = { confirmFinish = false })
