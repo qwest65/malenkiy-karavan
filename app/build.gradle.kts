@@ -12,8 +12,8 @@ android {
         applicationId = "ru.malenkiykaravan"
         minSdk = 26
         targetSdk = 35
-        versionCode = 15
-        versionName = "0.6.4"
+        versionCode = 16
+        versionName = "0.6.5"
     }
     signingConfigs {
         // Постоянный debug-ключ из репозитория: каждая сборка CI ставится поверх предыдущей без удаления
