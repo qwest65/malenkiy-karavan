@@ -8,7 +8,7 @@ on:
       mode:
         description: "samples — образцы Edge; yandex-samples — образцы Яндекс SpeechKit (проверка ключа); all — переозвучить приложение"
         type: choice
-        options: ["samples", "yandex-samples", "yandex-v3-samples", "all"]
+        options: ["samples", "yandex-samples", "yandex-v3-samples", "yandex-v3-trosha", "all"]
         default: "samples"
       narrator:
         description: "Голос рассказчика"
@@ -77,6 +77,16 @@ jobs:
         run: |
           python3 app/tools/generate_audio.py --yandex-v3-samples y3samples
           gh release upload voice-samples-yandex y3samples/*.ogg --clobber
+
+      - name: Yandex v3 Trosha pitch variants
+        if: inputs.mode == 'yandex-v3-trosha'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          YANDEX_SPEECHKIT_KEY: ${{ secrets.YANDEX_SPEECHKIT_KEY }}
+        run: |
+          pip install librosa
+          python3 app/tools/generate_audio.py --yandex-v3-trosha y3trosha
+          gh release upload voice-samples-yandex y3trosha/*.ogg --clobber
 
       - name: Voice samples
         if: inputs.mode == 'samples'

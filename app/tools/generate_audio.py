@@ -193,6 +193,23 @@ def generate_yandex_v3_samples(route, out):
     write(out / "v3-trosha-masha-friendly.ogg", *audio)
 
 
+def generate_yandex_v3_trosha(route, out):
+    """Варианты Троши: голос выше и выше, чтобы звучал по-детски."""
+    out.mkdir(parents=True, exist_ok=True)
+    text = route["stops"][1]["trosha"]
+    for voice, shift in (("masha", 400), ("masha", 700), ("masha", 1000), ("marina", 700)):
+        try:
+            write(out / f"v3-trosha-{voice}-up{shift}.ogg", *yandex_v3_say(text, voice, "friendly", 1.1, shift))
+        except RuntimeError as error:
+            print(f"  {voice} +{shift}: {error}")
+    # Тот же голос, поднятый на 4 полутона уже у нас (librosa), — для сравнения.
+    import librosa
+
+    samples, rate = yandex_v3_say(text, "masha", "friendly", 1.1)
+    write(out / "v3-trosha-masha-plus4semitones.ogg",
+          librosa.effects.pitch_shift(samples, sr=rate, n_steps=4).astype(np.float32), rate)
+
+
 # --- Общее -------------------------------------------------------------------------------
 
 # Ударения, которые синтезатор ставит неверно. Знак ударения (U+0301) добавляется только
@@ -352,12 +369,15 @@ def main():
     parser.add_argument("--samples", type=pathlib.Path, help="вместо озвучки — образцы голосов Edge в эту папку")
     parser.add_argument("--yandex-samples", type=pathlib.Path, help="образцы голосов Яндекс SpeechKit в эту папку")
     parser.add_argument("--yandex-v3-samples", type=pathlib.Path, help="образцы новых голосов SpeechKit (API v3)")
+    parser.add_argument("--yandex-v3-trosha", type=pathlib.Path, help="варианты Троши с поднятым тоном (API v3)")
     args = parser.parse_args()
     if args.engine == "edge":
         args.narrator = args.narrator or "ru-RU-DmitryNeural"
         args.trosha = args.trosha or "ru-RU-SvetlanaNeural"
     route = json.loads(ROUTE.read_text(encoding="utf-8"))
-    if args.yandex_v3_samples:
+    if args.yandex_v3_trosha:
+        generate_yandex_v3_trosha(route, args.yandex_v3_trosha)
+    elif args.yandex_v3_samples:
         generate_yandex_v3_samples(route, args.yandex_v3_samples)
     elif args.yandex_samples:
         generate_yandex_samples(route, args.yandex_samples)
