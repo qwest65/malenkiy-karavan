@@ -6,9 +6,9 @@ on:
   workflow_dispatch:
     inputs:
       mode:
-        description: "samples — образцы голосов в пред-релиз voice-samples; all — переозвучить приложение"
+        description: "samples — образцы Edge; yandex-samples — образцы Яндекс SpeechKit (проверка ключа); all — переозвучить приложение"
         type: choice
-        options: ["samples", "all"]
+        options: ["samples", "yandex-samples", "all"]
         default: "samples"
       narrator:
         description: "Голос рассказчика"
@@ -44,7 +44,29 @@ jobs:
         with:
           python-version: "3.12"
 
-      - run: pip install edge-tts soundfile numpy
+      - run: pip install edge-tts soundfile numpy requests
+
+      # Образцы голосов Яндекса. Секрет YANDEX_SPEECHKIT_KEY — API-ключ сервисного аккаунта
+      # с ролью ai.speechkit-tts.user. Заодно проверяет, что ключ работает.
+      - name: Yandex voice samples
+        if: inputs.mode == 'yandex-samples'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          YANDEX_SPEECHKIT_KEY: ${{ secrets.YANDEX_SPEECHKIT_KEY }}
+        run: |
+          if [ -z "$YANDEX_SPEECHKIT_KEY" ]; then
+            echo "::error::Секрет YANDEX_SPEECHKIT_KEY не задан."
+            exit 1
+          fi
+          python3 app/tools/generate_audio.py --yandex-samples ysamples
+          cat ysamples/NOTES.md >> "$GITHUB_STEP_SUMMARY"
+          gh release delete voice-samples-yandex --yes --cleanup-tag 2>/dev/null || true
+          gh release create voice-samples-yandex ysamples/*.ogg \
+            --target "$GITHUB_SHA" \
+            --title "Образцы голосов Яндекс SpeechKit" \
+            --notes-file ysamples/NOTES.md \
+            --prerelease \
+            --latest=false
 
       - name: Voice samples
         if: inputs.mode == 'samples'

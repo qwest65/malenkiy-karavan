@@ -7,6 +7,8 @@ on:
       - "rustore/**"
       - "app/tools/rustore_publish.py"
       - ".github/workflows/rustore.yml"
+      - "app/tools/generate_audio.py"
+      - ".github/workflows/voice.yml"
   workflow_dispatch:
 
 permissions:
