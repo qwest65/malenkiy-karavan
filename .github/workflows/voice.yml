@@ -6,9 +6,9 @@ on:
   workflow_dispatch:
     inputs:
       mode:
-        description: "samples — образцы голосов в пред-релиз voice-samples; all — переозвучить приложение"
+        description: "samples — образцы Edge; yandex-samples — образцы Яндекс SpeechKit (проверка ключа); all — переозвучить приложение"
         type: choice
-        options: ["samples", "all"]
+        options: ["samples", "yandex-samples", "yandex-v3-samples", "yandex-v3-trosha", "yandex-narrator", "all"]
         default: "samples"
       narrator:
         description: "Голос рассказчика"
@@ -44,7 +44,68 @@ jobs:
         with:
           python-version: "3.12"
 
-      - run: pip install edge-tts soundfile numpy
+      - run: pip install edge-tts soundfile numpy requests
+
+      # Образцы голосов Яндекса. Секрет YANDEX_SPEECHKIT_KEY — API-ключ сервисного аккаунта
+      # с ролью ai.speechkit-tts.user. Заодно проверяет, что ключ работает.
+      - name: Yandex voice samples
+        if: inputs.mode == 'yandex-samples'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          YANDEX_SPEECHKIT_KEY: ${{ secrets.YANDEX_SPEECHKIT_KEY }}
+        run: |
+          if [ -z "$YANDEX_SPEECHKIT_KEY" ]; then
+            echo "::error::Секрет YANDEX_SPEECHKIT_KEY не задан."
+            exit 1
+          fi
+          python3 app/tools/generate_audio.py --yandex-samples ysamples
+          cat ysamples/NOTES.md >> "$GITHUB_STEP_SUMMARY"
+          gh release delete voice-samples-yandex --yes --cleanup-tag 2>/dev/null || true
+          gh release create voice-samples-yandex ysamples/*.ogg \
+            --target "$GITHUB_SHA" \
+            --title "Образцы голосов Яндекс SpeechKit" \
+            --notes-file ysamples/NOTES.md \
+            --prerelease \
+            --latest=false
+
+      # Новые голоса SpeechKit (API v3) — добавляются к образцам Яндекса в том же пред-релизе.
+      - name: Yandex v3 voice samples
+        if: inputs.mode == 'yandex-v3-samples'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          YANDEX_SPEECHKIT_KEY: ${{ secrets.YANDEX_SPEECHKIT_KEY }}
+        run: |
+          python3 app/tools/generate_audio.py --yandex-v3-samples y3samples
+          gh release upload voice-samples-yandex y3samples/*.ogg --clobber
+
+      - name: Yandex v3 Trosha pitch variants
+        if: inputs.mode == 'yandex-v3-trosha'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          YANDEX_SPEECHKIT_KEY: ${{ secrets.YANDEX_SPEECHKIT_KEY }}
+        run: |
+          pip install librosa
+          python3 app/tools/generate_audio.py --yandex-v3-trosha y3trosha
+          gh release upload voice-samples-yandex y3trosha/*.ogg --clobber
+
+      # Рассказчик — голос Яндекса (по умолчанию Ермил), Троша остаётся как есть (ElevenLabs).
+      - name: Yandex narrator
+        if: inputs.mode == 'yandex-narrator'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          YANDEX_SPEECHKIT_KEY: ${{ secrets.YANDEX_SPEECHKIT_KEY }}
+        run: |
+          python3 app/tools/generate_audio.py --yandex-narrator ermil --yandex-role neutral
+          git add app/src/main/assets/kids/audio
+          if git diff --cached --quiet; then
+            echo "Озвучка не изменилась."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "Voice the narrator with Yandex SpeechKit (Ermil)"
+          git push
+          gh workflow run android.yml --ref "$GITHUB_REF_NAME"
 
       - name: Voice samples
         if: inputs.mode == 'samples'

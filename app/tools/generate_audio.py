@@ -101,6 +101,175 @@ def edge_say(text, voice, rate="+0%", pitch="+0Hz", attempts=4):
     return samples, rate_hz
 
 
+# --- Яндекс SpeechKit --------------------------------------------------------------------
+
+# Синтез речи Яндекса (API v1), оплата по числу символов. Ключ — в переменной YANDEX_SPEECHKIT_KEY.
+YANDEX_URL = "https://tts.api.cloud.yandex.net/speech/v1/tts:synthesize"
+YANDEX_RATE = 48000
+
+# Кандидаты для образцов: (голос, амплуа). Не каждый голос есть в API v1 — недоступные пропускаем.
+YANDEX_NARRATORS = [("filipp", None), ("ermil", "good"), ("zahar", "good"), ("alexander", "good"),
+                    ("kirill", "good"), ("anton", "good"), ("madirus", None), ("alena", "good"), ("jane", "good")]
+YANDEX_TROSHAS = [("alena", "good"), ("jane", "good"), ("masha", "friendly"), ("lera", "friendly"),
+                  ("dasha", "friendly"), ("marina", "friendly")]
+
+
+def yandex_say(text, voice, emotion=None, speed=1.0):
+    import os
+
+    import requests
+
+    data = {"text": text, "lang": "ru-RU", "voice": voice, "speed": f"{speed:.2f}",
+            "format": "lpcm", "sampleRateHertz": str(YANDEX_RATE)}
+    if emotion:
+        data["emotion"] = emotion
+    r = requests.post(YANDEX_URL, data=data, timeout=60,
+                      headers={"Authorization": f"Api-Key {os.environ['YANDEX_SPEECHKIT_KEY'].strip()}"})
+    if r.status_code != 200:
+        raise RuntimeError(f"HTTP {r.status_code}: {r.text[:300]}")
+    return np.frombuffer(r.content, dtype="<i2").astype(np.float32) / 32768, YANDEX_RATE
+
+
+def generate_yandex_samples(route, out):
+    """Один и тот же фрагмент голосами Яндекса. Первый же запрос проверяет ключ."""
+    out.mkdir(parents=True, exist_ok=True)
+    stop = route["stops"][1]
+    rows, failed = [], []
+    jobs = [("narrator", v, e, stop["narrator"], 0.95) for v, e in YANDEX_NARRATORS]
+    jobs += [("trosha", v, e, stop["trosha"], 1.1) for v, e in YANDEX_TROSHAS]
+    for role, voice, emotion, text, speed in jobs:
+        name = f"{role}-{voice}" + (f"-{emotion}" if emotion else "")
+        try:
+            write(out / f"{name}.ogg", *yandex_say(text, voice, emotion, speed))
+            rows.append(f"| {name}.ogg | {'рассказчик' if role == 'narrator' else 'Троша'} | {voice} | {emotion or '—'} |")
+        except RuntimeError as error:
+            print(f"  {name}: {error}")
+            failed.append(f"{name}: {error}")
+            if "401" in str(error) or "403" in str(error):
+                raise SystemExit(f"Ключ SpeechKit не принят: {error}")
+    if not rows:
+        raise SystemExit("Ни один голос не озвучил фразу.")
+    notes = ["Один и тот же фрагмент (Свято-Троицкий собор) голосами Яндекс SpeechKit (API v1).", "",
+             "| Файл | Роль | Голос | Амплуа |", "|---|---|---|---|", *rows]
+    if failed:
+        notes += ["", "Не получилось (голос недоступен в API v1):", *[f"- {f}" for f in failed]]
+    (out / "NOTES.md").write_text("\n".join(notes) + "\n", encoding="utf-8")
+
+
+def yandex_v3_say(text, voice, role=None, speed=1.0, pitch_shift=None):
+    """Новые голоса SpeechKit (API v3): ответ — поток JSON-строк с кусками звука в base64."""
+    import base64
+    import os
+
+    import requests
+
+    hints = [{"voice": voice}, {"speed": speed}]
+    if role:
+        hints.append({"role": role})
+    if pitch_shift:
+        hints.append({"pitchShift": pitch_shift})
+    body = {"text": text, "hints": hints, "loudnessNormalizationType": "LUFS",
+            "outputAudioSpec": {"rawAudio": {"audioEncoding": "LINEAR16_PCM", "sampleRateHertz": YANDEX_RATE}}}
+    r = requests.post("https://tts.api.cloud.yandex.net/tts/v3/utteranceSynthesis", json=body, timeout=120,
+                      headers={"Authorization": f"Api-Key {os.environ['YANDEX_SPEECHKIT_KEY'].strip()}"})
+    if r.status_code != 200:
+        raise RuntimeError(f"HTTP {r.status_code}: {r.text[:300]}")
+    pcm = b"".join(base64.b64decode(json.loads(line)["result"]["audioChunk"]["data"])
+                   for line in r.text.splitlines() if line.strip())
+    return np.frombuffer(pcm, dtype="<i2").astype(np.float32) / 32768, YANDEX_RATE
+
+
+def generate_yandex_v3_samples(route, out):
+    """По одному новому голосу (API v3) для рассказчика и для Троши."""
+    out.mkdir(parents=True, exist_ok=True)
+    stop = route["stops"][1]
+    write(out / "v3-narrator-alexander-good.ogg", *yandex_v3_say(stop["narrator"], "alexander", "good", 0.95))
+    try:
+        audio = yandex_v3_say(stop["trosha"], "masha", "friendly", 1.1, pitch_shift=200)
+    except RuntimeError as error:
+        # Если сдвиг тона не принят — тот же голос без него.
+        print(f"  сдвиг тона не принят: {error}")
+        audio = yandex_v3_say(stop["trosha"], "masha", "friendly", 1.1)
+    write(out / "v3-trosha-masha-friendly.ogg", *audio)
+
+
+def generate_yandex_v3_trosha(route, out):
+    """Варианты Троши: голос выше и выше, чтобы звучал по-детски."""
+    out.mkdir(parents=True, exist_ok=True)
+    text = route["stops"][1]["trosha"]
+    for voice, shift in (("masha", 400), ("masha", 700), ("masha", 1000), ("marina", 700)):
+        try:
+            write(out / f"v3-trosha-{voice}-up{shift}.ogg", *yandex_v3_say(text, voice, "friendly", 1.1, shift))
+        except RuntimeError as error:
+            print(f"  {voice} +{shift}: {error}")
+    # Тот же голос, поднятый на 4 полутона уже у нас (librosa), — для сравнения.
+    import librosa
+
+    samples, rate = yandex_v3_say(text, "masha", "friendly", 1.1)
+    write(out / "v3-trosha-masha-plus4semitones.ogg",
+          librosa.effects.pitch_shift(samples, sr=rate, n_steps=4).astype(np.float32), rate)
+
+
+# Ударения для Яндекса: «+» перед ударной гласной. Слова — те же, что синтезаторы читали неверно.
+YANDEX_STRESS = {
+    r"реки": "рек+и",
+    r"города": "г+орода",
+    r"двадцатого": "двадц+атого",
+    r"Троицк(\w*)": "Тр+оицк\\1",
+    r"гербе": "г+ербе",
+    r"казаки": "казак+и",
+    r"сыром": "с+ыром",
+    r"ворону": "вор+ону",
+}
+
+
+def yandex_text(text):
+    for written, spoken in SPOKEN.items():
+        text = text.replace(written, spoken)
+    for word, spoken in YANDEX_STRESS.items():
+        pattern = re.compile(rf"\b{word}\b", re.IGNORECASE)
+
+        def keep_case(match, spoken=spoken, pattern=pattern):
+            out = pattern.sub(spoken, match.group(0).lower())
+            return out[0].upper() + out[1:] if match.group(0)[0].isupper() else out
+
+        text = pattern.sub(keep_case, text)
+    return text.replace("…", ".")
+
+
+def yandex_chunks(text, limit=240):
+    """Длинную справку режем по предложениям: так надёжнее для API v3."""
+    parts, cur = [], ""
+    for sentence in re.split(r"(?<=[.!?…])\s+", text):
+        if cur and len(cur) + 1 + len(sentence) > limit:
+            parts.append(cur)
+            cur = sentence
+        else:
+            cur = f"{cur} {sentence}".strip()
+    if cur:
+        parts.append(cur)
+    return parts
+
+
+def yandex_narrate(text, voice, role):
+    pieces = []
+    rate = YANDEX_RATE
+    for chunk in yandex_chunks(yandex_text(text)):
+        samples, rate = yandex_v3_say(chunk, voice, role, 1.0)
+        pieces += [samples, np.zeros(int(rate * 0.25), dtype=np.float32)]
+    return np.concatenate(pieces[:-1]), rate
+
+
+def generate_yandex_narrator(route, catalog, voice, role):
+    """Переозвучивает только рассказчика (рассказы, вопросы, справки для взрослых). Троша не трогается."""
+    for n, stop in enumerate(route["stops"], start=1):
+        write(AUDIO / f"stop{n}_narrator.ogg", *yandex_narrate(stop["narrator"], voice, role), tail=PAUSE)
+        write(AUDIO / f"stop{n}_task.ogg", *yandex_narrate(stop["question"]["voice"], voice, role), tail=PAUSE)
+        place = catalog[stop["place_id"]]
+        text = f"{place['name']}. {place['description']}".replace("\n", " ")
+        write(AUDIO / f"stop{n}_parent.ogg", *yandex_narrate(text, voice, role), tail=PAUSE)
+
+
 # --- Общее -------------------------------------------------------------------------------
 
 # Ударения, которые синтезатор ставит неверно. Знак ударения (U+0301) добавляется только
@@ -112,6 +281,11 @@ SPOKEN = {
     "XIX веке": "девятнадцатом веке",
     "XIX века": "девятнадцатого века",
     "XX века": "двадцатого века",
+    # Инициалы синтезатор читает по буквам — в озвучке называем полностью (на экране остаются инициалы).
+    "И. И. Неплюевым": "Иваном Ивановичем Неплюевым",
+    "И. И. Неплюев": "Иван Иванович Неплюев",
+    "И. А. Деколонга": "Ивана Александровича Деколонга",
+    "И. А. Крылову": "Ивану Андреевичу Крылову",
 }
 
 STRESS = {
@@ -258,12 +432,26 @@ def main():
     parser.add_argument("--trosha-rate", default="+10%", help="edge: скорость Троши")
     parser.add_argument("--trosha-pitch", default="+25Hz", help="edge: тон Троши, например +25Hz")
     parser.add_argument("--samples", type=pathlib.Path, help="вместо озвучки — образцы голосов Edge в эту папку")
+    parser.add_argument("--yandex-samples", type=pathlib.Path, help="образцы голосов Яндекс SpeechKit в эту папку")
+    parser.add_argument("--yandex-v3-samples", type=pathlib.Path, help="образцы новых голосов SpeechKit (API v3)")
+    parser.add_argument("--yandex-v3-trosha", type=pathlib.Path, help="варианты Троши с поднятым тоном (API v3)")
+    parser.add_argument("--yandex-narrator", help="переозвучить только рассказчика голосом Яндекса, например ermil")
+    parser.add_argument("--yandex-role", default="neutral", help="амплуа голоса Яндекса")
     args = parser.parse_args()
     if args.engine == "edge":
         args.narrator = args.narrator or "ru-RU-DmitryNeural"
         args.trosha = args.trosha or "ru-RU-SvetlanaNeural"
     route = json.loads(ROUTE.read_text(encoding="utf-8"))
-    if args.samples:
+    if args.yandex_narrator:
+        catalog = {p["id"]: p for p in json.loads(CATALOG.read_text(encoding="utf-8"))["places"]}
+        generate_yandex_narrator(route, catalog, args.yandex_narrator, args.yandex_role)
+    elif args.yandex_v3_trosha:
+        generate_yandex_v3_trosha(route, args.yandex_v3_trosha)
+    elif args.yandex_v3_samples:
+        generate_yandex_v3_samples(route, args.yandex_v3_samples)
+    elif args.yandex_samples:
+        generate_yandex_samples(route, args.yandex_samples)
+    elif args.samples:
         generate_samples(route, args.samples)
     else:
         catalog = {p["id"]: p for p in json.loads(CATALOG.read_text(encoding="utf-8"))["places"]}
