@@ -10,6 +10,7 @@ on:
       - "app/tools/generate_audio.py"
       - ".github/workflows/voice.yml"
       - "docs/**"
+      - "README.md"
   workflow_dispatch:
 
 permissions:
