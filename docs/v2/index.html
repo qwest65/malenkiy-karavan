@@ -109,6 +109,13 @@
     @keyframes bob { 50% { transform: translateY(-8px) rotate(-1deg); } }
     @media (prefers-reduced-motion: reduce) { .trosha { animation: none; } }
 
+    .trosha.logo {
+      width: 82%; max-width: 360px; aspect-ratio: 1; border-radius: 22%; border: 8px solid #fff;
+      box-shadow: 0 10px 0 rgba(90,45,20,0.18), 0 18px 30px rgba(0,0,0,0.18); filter: none;
+      margin: 70px 0 0 60px; rotate: -4deg;
+    }
+    @media (max-width: 900px) { .trosha.logo { margin: 10px auto 0; width: 64%; } }
+    .person .mail { margin-top: 10px; padding: 8px 14px; font-size: 0.95rem; }
     .title-block { text-align: center; }
     .title {
       margin: 0; line-height: 0.95; font-weight: 900;
@@ -393,7 +400,7 @@
   <div class="wrap hero-grid">
     <div class="scene">
       <div class="sign" aria-hidden="true"><div class="board">ТРОИЦК</div><div class="post"></div></div>
-      <img class="trosha" src="../images/trosha.webp" alt="Верблюжонок Троша">
+      <img class="trosha logo" src="logo.webp" alt="Верблюжонок Троша на фоне Свято-Троицкого собора и карты">
     </div>
 
     <div class="title-block">
@@ -670,6 +677,7 @@
           <div>
             <h3>Сердюкова Анна Григорьевна</h3>
             <div class="role">Руководитель проекта, автор методики, педагог дошкольного образования</div>
+            <a class="mail" href="mailto:qwest_06@mail.ru">📧 qwest_06@mail.ru</a>
           </div>
         </div>
         <div class="person">
@@ -677,13 +685,9 @@
           <div>
             <h3>Сердюков Константин Леонидович</h3>
             <div class="role">Разработчик</div>
+            <a class="mail" href="mailto:gubon0160@gmail.com">📧 gubon0160@gmail.com</a>
           </div>
         </div>
-      </div>
-      <div class="mails">
-        Пишите нам:
-        <a class="mail" href="mailto:gubon0160@gmail.com">📧 gubon0160@gmail.com</a>
-        <a class="mail" href="mailto:qwest_06@mail.ru">📧 qwest_06@mail.ru</a>
       </div>
     </div>
     </details>
