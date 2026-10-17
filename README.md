@@ -14,7 +14,9 @@
 ![Kotlin](https://img.shields.io/badge/Kotlin-2.1-7F52FF?logo=kotlin&logoColor=white)
 ![MapLibre](https://img.shields.io/badge/MapLibre-OpenStreetMap-396CB2)
 
-### [⬇️ Скачать APK](https://github.com/qwest65/malenkiy-karavan/releases/latest/download/MalenkiyKaravan.apk)
+### [⬇️ Скачать APK](https://github.com/qwest65/malenkiy-karavan/releases/latest/download/MalenkiyKaravan.apk) · [🌐 Пройти в браузере (iPhone)](https://qwest65.github.io/malenkiy-karavan-web/)
+
+Веб-версия для iPhone и без установки — отдельный проект [qwest65/malenkiy-karavan-web](https://github.com/qwest65/malenkiy-karavan-web).
 
 </div>
 
