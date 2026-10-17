@@ -6,7 +6,7 @@
 'use strict';
 
 /** Номер веб-версии: виден внизу главного экрана, чтобы понять, обновилось ли приложение. */
-const APP_VERSION = '0.6';
+const APP_VERSION = '0.7';
 const STORE_KEY = 'karavan.journey2';
 const HINT_KEY = 'karavan.installHint';
 const MAP_STYLE = 'https://tiles.openfreemap.org/styles/liberty';
@@ -232,7 +232,7 @@ const TURN_ROTATE = { left: -90, slight_left: -45, right: 90, slight_right: 45, 
 
 /** Магнитное склонение в Троицке, градусы к востоку: компас показывает на магнитный север. */
 const DECLINATION = 13;
-const H = { heading: null, gps: null, gpsAt: -Infinity, compass: null, listening: false };
+const H = { heading: null, gps: null, gpsAt: -Infinity, compass: null, listening: false, course: null, courseAt: -Infinity, coursePos: null };
 
 function onGpsHeading(c) {
   if (Number.isFinite(c.heading) && Number.isFinite(c.speed) && c.speed >= 1) {
@@ -253,7 +253,31 @@ function onCompass(deg) {
 /** Направление, которому можно верить сейчас: компас или свежий курс GPS, пока идём. */
 function freshHeading() {
   if (H.listening && H.compass != null) return H.heading;
-  return Date.now() - H.gpsAt < 5000 ? H.gps : null;
+  if (Date.now() - H.gpsAt < 5000) return H.gps;
+  return Date.now() - H.courseAt < 15000 ? H.course : null;
+}
+
+/**
+ * Куда повернуть карту. На маршруте — по направлению пути впереди, как в навигаторе:
+ * путь всегда смотрит вверх, даже если идём медленно. Вне пути — компас или куда мы
+ * сместились за последние метры. Не знаем — оставляем как есть.
+ */
+function mapBearing() {
+  if (G.routeBearing != null) return G.routeBearing;
+  return freshHeading();
+}
+
+/** Направление движения по самим координатам: GPS iPhone даёт курс только быстрее 1 м/с. */
+const COURSE_STEP_M = 8;
+function trackCourse(fix) {
+  const last = H.coursePos;
+  if (!last) { H.coursePos = [fix.lat, fix.lon]; return; }
+  const moved = distanceMeters(last[0], last[1], fix.lat, fix.lon);
+  if (moved >= COURSE_STEP_M) {
+    H.course = bearingDegrees(last, [fix.lat, fix.lon]);
+    H.courseAt = Date.now();
+    H.coursePos = [fix.lat, fix.lon];
+  }
 }
 
 let headingFrame = 0;
@@ -704,6 +728,7 @@ function onFix(pos) {
   S.fix = { lat: c.latitude, lon: c.longitude, acc: c.accuracy };
   G.speed = Number.isFinite(c.speed) ? c.speed : null;
   onGpsHeading(c);
+  trackCourse(S.fix);
   updateGuidance();
 }
 
@@ -751,11 +776,15 @@ function updateGuidance() {
     S.distance = pr.remaining;
     G.ahead = path.remainingFrom(pr.along);
     guide(path, pr.along);
+    // Направление пути на 20 м вперёд — по нему поворачиваем карту.
+    const ahead = path.pointAt(pr.along + 20);
+    G.routeBearing = distanceMeters(p[0], p[1], ahead[0], ahead[1]) > 3 ? bearingDegrees(p, ahead) : G.routeBearing;
   } else {
     G.offFixes++;
     S.shown = fix;
     S.distance = straight;
     S.instruction = null;
+    G.routeBearing = null;
     // Пока путь по улицам строится (или его нет совсем) — тянем к точке пунктир по прямой.
     G.ahead = [[fix.lat, fix.lon], [stop.lat, stop.lon]];
     G.straight = true;
@@ -970,7 +999,7 @@ function drawLive() {
 function drawMe() {
   if (!M.me) return;
   const el = M.me.getElement();
-  const h = freshHeading();
+  const h = H.listening && H.compass != null ? H.heading : mapBearing();
   el.classList.toggle('has-heading', h != null);
   if (h != null) M.me.setRotation(h);
 }
@@ -984,7 +1013,7 @@ function followCamera(force) {
   M.map.easeTo({
     center: [S.shown.lon, S.shown.lat],
     zoom: FOLLOW_ZOOM,
-    bearing: H.heading != null ? H.heading : M.map.getBearing(),
+    bearing: mapBearing() ?? M.map.getBearing(),
     pitch: FOLLOW_PITCH,
     padding: { top: 0, bottom: Math.round(M.map.getContainer().clientHeight * 0.3), left: 0, right: 0 },
     duration: force ? 600 : 300,
