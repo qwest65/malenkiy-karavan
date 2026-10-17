@@ -34,6 +34,7 @@ def build_route():
     data.mkdir(parents=True, exist_ok=True)
     (data / "route.json").write_text(json.dumps(route, ensure_ascii=False, separators=(",", ":")), encoding="utf-8")
     shutil.copy(KIDS / "paths.json", data / "paths.json")
+    shutil.copy(KIDS / "streets.json", data / "streets.json")
 
 
 def build_stickers():
