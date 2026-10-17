@@ -6,7 +6,7 @@
 'use strict';
 
 /** Номер веб-версии: виден внизу главного экрана, чтобы понять, обновилось ли приложение. */
-const APP_VERSION = '0.2';
+const APP_VERSION = '0.3';
 const STORE_KEY = 'karavan.journey2';
 const HINT_KEY = 'karavan.installHint';
 const MAP_STYLE = 'https://tiles.openfreemap.org/styles/liberty';
@@ -153,6 +153,128 @@ class WalkPath {
       }
     }
     return { off: bestOff, remaining: bestRemaining, along: this.length - bestRemaining };
+  }
+}
+
+/* ---------- Повороты, как Navigation.kt ---------- */
+
+const MIN_TURN_DEG = 30, SHARP_DEG = 60, U_TURN_DEG = 160;
+/** Направление до и после излома — по отрезку такой длины, чтобы мелкие зигзаги не мешали. */
+const WINDOW_M = 12;
+const MERGE_M = 15;
+const SKIP_START_M = 10;
+const PASSED_M = 5;
+/** За сколько метров до поворота Троша о нём говорит. */
+const TURN_ANNOUNCE_METERS = 20;
+/** Ближе этого к повороту пишем «сейчас». */
+const NOW_METERS = 8;
+
+function bearingDegrees(a, b) {
+  const p1 = rad(a[0]), p2 = rad(b[0]), dl = rad(b[1] - a[1]);
+  const y = Math.sin(dl) * Math.cos(p2);
+  const x = Math.cos(p1) * Math.sin(p2) - Math.sin(p1) * Math.cos(p2) * Math.cos(dl);
+  return (Math.atan2(y, x) * 180 / Math.PI + 360) % 360;
+}
+
+/** Разница направлений −180..180; плюс — вправо. */
+function angleDelta(from, to) {
+  const d = (((to - from) % 360) + 360) % 360;
+  return d > 180 ? d - 360 : d;
+}
+
+function findManeuvers(path) {
+  const pts = path.points;
+  if (pts.length < 3) return [];
+  const at = [0];
+  for (let i = 1; i < pts.length; i++) at.push(at[i - 1] + path.seg[i - 1]);
+  const length = path.length;
+  const d2 = (a, b) => distanceMeters(a[0], a[1], b[0], b[1]);
+  const bends = [];
+  for (let i = 1; i < pts.length - 1; i++) {
+    const d = at[i];
+    if (d < SKIP_START_M || length - d < PASSED_M) continue;
+    const before = path.pointAt(d - WINDOW_M), after = path.pointAt(d + WINDOW_M);
+    if (d2(before, pts[i]) < 1 || d2(pts[i], after) < 1) continue;
+    const delta = angleDelta(bearingDegrees(before, pts[i]), bearingDegrees(pts[i], after));
+    if (Math.abs(delta) >= MIN_TURN_DEG) bends.push({ at: d, delta });
+  }
+  const merged = [];
+  for (const b of bends) {
+    const last = merged[merged.length - 1];
+    if (last && b.at - last.at < MERGE_M) {
+      if (Math.abs(b.delta) > Math.abs(last.delta)) merged[merged.length - 1] = b;
+    } else merged.push(b);
+  }
+  return merged.map(b => ({ at: b.at, turn: turnOf(b.delta) }));
+}
+
+function turnOf(delta) {
+  if (Math.abs(delta) >= U_TURN_DEG) return 'u_turn';
+  if (delta <= -SHARP_DEG) return 'left';
+  if (delta < 0) return 'slight_left';
+  if (delta >= SHARP_DEG) return 'right';
+  return 'slight_right';
+}
+
+/** Ближайший поворот через inMeters или, если поворотов больше нет, сколько идти прямо. */
+function nextInstruction(path, along) {
+  if (!path.maneuvers) path.maneuvers = findManeuvers(path);
+  const next = path.maneuvers.find(m => m.at > along - PASSED_M);
+  if (!next) return { turn: null, inMeters: Math.max(path.length - along, 0), at: null };
+  return { turn: next.turn, inMeters: Math.max(next.at - along, 0), at: next.at };
+}
+
+const TURN_CLIP = { left: 'phrase_turn_left', right: 'phrase_turn_right', slight_left: 'phrase_slight_left', slight_right: 'phrase_slight_right', u_turn: 'phrase_u_turn' };
+const TURN_WORD = { left: 'налево', right: 'направо', slight_left: 'чуть левее', slight_right: 'чуть правее', u_turn: 'разворот' };
+const TURN_ROTATE = { left: -90, slight_left: -45, right: 90, slight_right: 45, u_turn: 0 };
+
+/* ---------- Куда смотрит телефон, как HeadingFusion ---------- */
+
+/** Магнитное склонение в Троицке, градусы к востоку: компас показывает на магнитный север. */
+const DECLINATION = 13;
+const H = { heading: null, gps: null, gpsAt: -Infinity, compass: null, listening: false };
+
+function onGpsHeading(c) {
+  if (Number.isFinite(c.heading) && Number.isFinite(c.speed) && c.speed >= 1) {
+    H.gps = c.heading;
+    H.gpsAt = Date.now();
+    H.heading = c.heading;
+  }
+}
+
+function onCompass(deg) {
+  const d = ((deg + DECLINATION) % 360 + 360) % 360;
+  H.compass = H.compass == null ? d : (H.compass + angleDelta(H.compass, d) * 0.2 + 360) % 360;
+  if (Date.now() - H.gpsAt > 4000) H.heading = H.compass;
+  headingChanged();
+}
+
+let headingFrame = 0;
+function headingChanged() {
+  if (headingFrame) return;
+  headingFrame = requestAnimationFrame(() => {
+    headingFrame = 0;
+    if (S.screen === 'walk') { updateBanner(); drawMe(); followCamera(false); }
+  });
+}
+
+/** Компас. На iPhone разрешение спрашивается только по нажатию — зовём из «Идём!». */
+function enableCompass() {
+  if (H.listening) return;
+  const listen = () => {
+    H.listening = true;
+    window.addEventListener('deviceorientation', e => {
+      if (Number.isFinite(e.webkitCompassHeading)) onCompass(e.webkitCompassHeading);
+    });
+    window.addEventListener('deviceorientationabsolute', e => {
+      if (Number.isFinite(e.alpha)) onCompass(360 - e.alpha);
+    });
+  };
+  const D = window.DeviceOrientationEvent;
+  if (D && typeof D.requestPermission === 'function') {
+    D.requestPermission().then(r => { if (r === 'granted') listen(); }).catch(() => {});
+  } else if (D) {
+    listen();
   }
 }
 
@@ -570,6 +692,7 @@ function onFix(pos) {
   G.denied = false;
   S.fix = { lat: c.latitude, lon: c.longitude, acc: c.accuracy };
   G.speed = Number.isFinite(c.speed) ? c.speed : null;
+  onGpsHeading(c);
   updateGuidance();
 }
 
@@ -601,6 +724,7 @@ function updateGuidance() {
   if (G.target !== target) {
     G.target = target;
     G.near = false;
+    G.turnAt = null;
     G.wasOnPath = false;
     G.offFixes = 0;
     G.arrival = new ArrivalDetector(radius);
@@ -621,10 +745,12 @@ function updateGuidance() {
     S.shown = { lat: p[0], lon: p[1] };
     S.distance = pr.remaining;
     G.ahead = path.remainingFrom(pr.along);
+    guide(path, pr.along);
   } else {
     G.offFixes++;
     S.shown = fix;
     S.distance = straight;
+    S.instruction = null;
     // Пока путь по улицам строится (или его нет совсем) — тянем к точке пунктир по прямой.
     G.ahead = [[fix.lat, fix.lon], [stop.lat, stop.lon]];
     G.straight = true;
@@ -677,7 +803,20 @@ function reroute(fix, target, hasPath) {
   });
 }
 
+/** Подсказка о ближайшем повороте; за 20 м до него Троша говорит, куда повернуть. */
+function guide(path, along) {
+  const next = nextInstruction(path, along);
+  S.instruction = next;
+  if (!next.turn || next.at == null) return;
+  if (next.inMeters <= TURN_ANNOUNCE_METERS && (G.turnAt == null || Math.abs(G.turnAt - next.at) > 1 || G.turnPath !== path)) {
+    G.turnAt = next.at;
+    G.turnPath = path;
+    if (S.screen === 'walk') player.enqueue(TURN_CLIP[next.turn]);
+  }
+}
+
 function setApproach(line, target) {
+  G.turnAt = null;
   G.approach = new WalkPath(line);
   G.approachTarget = target;
   G.offFixes = 0;
@@ -689,7 +828,14 @@ setInterval(() => {
 
 /* ================= Карта ================= */
 
-const M = { map: null, ready: false, markers: [], me: null, following: false, fitted: false, fittedWithMe: false };
+/**
+ * Как в навигаторе (KaravanMap.kt): карта следует за нами, повёрнута туда, куда идём, и чуть
+ * наклонена. Сдвинули карту пальцем — слежение выключается и само возвращается через 5 секунд.
+ */
+const FOLLOW_ZOOM = 17.5;
+const FOLLOW_PITCH = 40;
+const RESUME_FOLLOW_MS = 5000;
+const M = { map: null, ready: false, markers: [], me: null, following: true, fitted: false, resume: null, lastCam: 0 };
 
 const BLANK_STYLE = {
   version: 8, sources: {},
@@ -724,7 +870,15 @@ function ensureMap() {
   });
   M.map.on('dragstart', () => {
     M.following = false;
+    clearTimeout(M.resume);
     updateWalkView();
+  });
+  M.map.on('moveend', e => {
+    // Карту отпустили — через несколько секунд она сама вернётся к нам.
+    if (!M.following && (e.originalEvent || e.fit)) {
+      clearTimeout(M.resume);
+      M.resume = setTimeout(follow, e.fit ? 8000 : RESUME_FOLLOW_MS);
+    }
   });
 }
 
@@ -780,7 +934,8 @@ function drawMap() {
   drawLive();
   if (!M.fitted) {
     M.fitted = true;
-    fitAll();
+    // Пока координат нет — показываем весь маршрут; первый замер GPS переведёт карту в навигатор.
+    if (S.shown) followCamera(true); else { fitAll(); M.following = true; clearTimeout(M.resume); }
   }
 }
 
@@ -792,22 +947,42 @@ function drawLive() {
     if (!M.me) {
       const el = document.createElement('div');
       el.className = 'me';
-      M.me = new maplibregl.Marker({ element: el }).setLngLat([shown.lon, shown.lat]).addTo(M.map);
+      el.innerHTML = '<div class="me-arrow"></div><div class="me-dot"></div>';
+      M.me = new maplibregl.Marker({ element: el, rotationAlignment: 'map', pitchAlignment: 'map' }).setLngLat([shown.lon, shown.lat]).addTo(M.map);
     } else {
       M.me.setLngLat([shown.lon, shown.lat]);
     }
-    if (!M.fittedWithMe) {
-      // Первый замер: показываем сразу и нас, и точки прогулки.
-      M.fittedWithMe = true;
-      fitAll();
-    } else if (M.following) {
-      M.map.easeTo({ center: [shown.lon, shown.lat], duration: 600 });
-    }
+    drawMe();
+    followCamera(true);
   }
   if (M.ready) {
     const ahead = G.ahead && J.active != null ? [{ ...lineFeature(G.ahead), properties: { straight: !!G.straight } }] : [];
     M.map.getSource('ahead').setData({ type: 'FeatureCollection', features: ahead });
   }
+}
+
+/** Стрелка «я»: направлена туда, куда смотрит телефон. */
+function drawMe() {
+  if (!M.me) return;
+  const el = M.me.getElement();
+  el.classList.toggle('has-heading', H.heading != null);
+  if (H.heading != null) M.me.setRotation(H.heading);
+}
+
+/** Камера навигатора: мы в центре, карта повёрнута по направлению движения. */
+function followCamera(force) {
+  if (!M.map || !M.following || !S.shown) return;
+  const now = Date.now();
+  if (!force && now - M.lastCam < 300) return;
+  M.lastCam = now;
+  M.map.easeTo({
+    center: [S.shown.lon, S.shown.lat],
+    zoom: FOLLOW_ZOOM,
+    bearing: H.heading != null ? H.heading : M.map.getBearing(),
+    pitch: FOLLOW_PITCH,
+    padding: { top: 0, bottom: Math.round(M.map.getContainer().clientHeight * 0.3), left: 0, right: 0 },
+    duration: force ? 600 : 300,
+  });
 }
 
 function fitAll() {
@@ -817,14 +992,16 @@ function fitAll() {
   if (!pts.length) return;
   const b = pts.reduce((bb, p) => bb.extend(p), new maplibregl.LngLatBounds(pts[0], pts[0]));
   M.following = false;
+  clearTimeout(M.resume);
   const h = M.map.getContainer().clientHeight;
   const bottom = Math.min(440, Math.round(h * 0.5));
-  M.map.fitBounds(b, { padding: { top: 170, bottom, left: 50, right: 50 }, maxZoom: 17, duration: 500 });
+  M.map.fitBounds(b, { padding: { top: 170, bottom, left: 50, right: 50 }, maxZoom: 17, duration: 500, bearing: 0, pitch: 0 }, { fit: true });
 }
 
 function follow() {
+  clearTimeout(M.resume);
   M.following = true;
-  if (S.shown && M.map) M.map.easeTo({ center: [S.shown.lon, S.shown.lat], zoom: 17, duration: 500 });
+  followCamera(true);
   updateWalkView();
 }
 
@@ -845,6 +1022,7 @@ function startWalk(selection) {
   setJourney({ ...S.journey, plan: chosen, position: 0, walkFound: [] });
   S.celebrated.clear();
   G.target = null;
+  enableCompass();
   startTracking();
   go('walk');
   player.play('intro_trosha', 'phrase_road');
@@ -854,6 +1032,7 @@ function resumeWalk() {
   if (!J.inProgress) return;
   player.stop();
   G.target = null;
+  enableCompass();
   startTracking();
   go('walk');
   player.play('phrase_go');
@@ -1431,6 +1610,44 @@ function walkScreen() {
     </div>`;
 }
 
+/**
+ * Плашка навигатора (NavigationBanner в Screens.kt): куда повернуть и через сколько метров.
+ * Рядом с точкой или без пути по улицам — стрелка прямо на точку с учётом компаса.
+ */
+function updateBanner() {
+  const el = document.getElementById('banner');
+  if (!el) return;
+  const d = S.distance, here = S.shown, target = J.active;
+  if (d == null || !here || target == null) { el.innerHTML = ''; return; }
+  const stop = route.stops[target];
+  const ins = S.instruction;
+  const near = d <= NEAR_METERS;
+  let arrow = '↑', rotation = 0, title, subtitle;
+  if (H.heading != null && (near || !ins)) {
+    const steps = kidSteps(d);
+    rotation = angleDelta(H.heading, bearingDegrees([here.lat, here.lon], [stop.lat, stop.lon]));
+    title = near ? 'Точка рядом — иди по стрелке' : 'Иди по стрелке к точке';
+    subtitle = `≈ ${steps} ${stepsWord(steps)} · ${formatDistance(d)}`;
+  } else if (ins && ins.turn) {
+    arrow = ins.turn === 'u_turn' ? '↩' : '↑';
+    rotation = TURN_ROTATE[ins.turn];
+    title = ins.inMeters < NOW_METERS ? `Сейчас ${TURN_WORD[ins.turn]}` : `Через ${formatDistance(ins.inMeters)} ${TURN_WORD[ins.turn]}`;
+    subtitle = `До точки ${formatDistance(d)}`;
+  } else if (ins) {
+    title = `Прямо ${formatDistance(ins.inMeters)}`;
+    subtitle = 'и мы у точки';
+  } else if (near) {
+    arrow = '📍';
+    title = 'Точка рядом!';
+    subtitle = `Смотри по сторонам · ${formatDistance(d)}`;
+  } else {
+    el.innerHTML = '';
+    return;
+  }
+  el.innerHTML = `<div class="banner"><div class="arrow" style="transform:rotate(${Math.round(rotation)}deg)">${arrow}</div>` +
+    `<div><div class="t">${esc(title)}</div><div class="s">${esc(subtitle)}</div></div></div>`;
+}
+
 /** Обновление прогулки без перерисовки всего экрана: каждые несколько секунд приходит GPS. */
 function updateWalkView() {
   if (S.screen !== 'walk') return;
@@ -1446,12 +1663,7 @@ function updateWalkView() {
     small.textContent = d != null ? `≈ ${kidSteps(d)} ${stepsWord(kidSteps(d))}` : (GEO.status === 'denied' ? 'Геопозиция запрещена' : 'Ищем, где мы…');
     small.style.color = d != null ? '' : 'var(--muted)';
   }
-  const banner = document.getElementById('banner');
-  if (banner) {
-    banner.innerHTML = d != null && d <= NEAR_METERS
-      ? `<div class="banner"><div class="arrow">📍</div><div><div class="t">Точка рядом!</div><div class="s">Смотри по сторонам · ${formatDistance(d)}</div></div></div>`
-      : '';
-  }
+  updateBanner();
   const src = document.getElementById('route-src');
   if (src) {
     const text = {
