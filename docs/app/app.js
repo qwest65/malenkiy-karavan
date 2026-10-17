@@ -6,7 +6,7 @@
 'use strict';
 
 /** Номер веб-версии: виден внизу главного экрана, чтобы понять, обновилось ли приложение. */
-const APP_VERSION = '0.9';
+const APP_VERSION = '0.10';
 const STORE_KEY = 'karavan.journey2';
 const HINT_KEY = 'karavan.installHint';
 const MAP_STYLE = 'https://tiles.openfreemap.org/styles/liberty';
@@ -709,7 +709,20 @@ function stopTracking() {
   if (GEO.status === 'ok') GEO.status = 'idle';
 }
 
+/** Для диагностики на iPhone: что ответил телефон в последний раз. */
+const GEO_DIAG = { perm: null, error: null };
+function readGeoPermission() {
+  if (!navigator.permissions || !navigator.permissions.query) { GEO_DIAG.perm = 'нет данных'; return; }
+  navigator.permissions.query({ name: 'geolocation' }).then(st => {
+    const word = { granted: 'разрешена', denied: 'запрещена', prompt: 'спросит' };
+    GEO_DIAG.perm = word[st.state] || st.state;
+    st.onchange = () => { GEO_DIAG.perm = word[st.state] || st.state; if (S.screen === 'home') render(); };
+    if (S.screen === 'home') render();
+  }).catch(() => { GEO_DIAG.perm = 'нет данных'; });
+}
+
 function onGeoError(err) {
+  GEO_DIAG.error = `код ${err.code}${err.message ? `: ${err.message}` : ''}`;
   if (err.code === err.PERMISSION_DENIED) {
     GEO.status = 'denied';
     G.denied = true;
@@ -1575,7 +1588,8 @@ function homeScreen() {
     <button class="btn soft" data-act="album">Мой альбом</button>
     ${mustOpenInBrowser() ? '' : installHint()}
     ${j.found.length || j.badge ? `<button class="link" data-act="reset">Очистить альбом</button>` : ''}
-    <div class="muted" style="font-size:12px;opacity:.7">Веб-версия ${APP_VERSION}</div>
+    <div class="muted" style="font-size:12px;opacity:.7">Веб-версия ${APP_VERSION}${standalone ? ' · веб-приложение' : ' · браузер'}
+      · геопозиция: ${GEO_DIAG.perm || '…'}${GEO_DIAG.error ? ` · ошибка ${esc(GEO_DIAG.error)}` : ''}</div>
   </div>`;
 }
 
@@ -1942,6 +1956,7 @@ async function boot() {
   }
   S.journey = loadJourney();
   await Photos.load();
+  readGeoPermission();
   history.replaceState({ inner: false }, '');
   render();
   if ('serviceWorker' in navigator && location.protocol === 'https:') {
