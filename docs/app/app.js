@@ -6,7 +6,7 @@
 'use strict';
 
 /** Номер веб-версии: виден внизу главного экрана, чтобы понять, обновилось ли приложение. */
-const APP_VERSION = '0.10';
+const APP_VERSION = '0.11';
 const STORE_KEY = 'karavan.journey2';
 const HINT_KEY = 'karavan.installHint';
 const MAP_STYLE = 'https://tiles.openfreemap.org/styles/liberty';
@@ -1539,7 +1539,7 @@ function browserLink() {
   return `intent://${APP_URL.replace('https://', '')}#Intent;scheme=https;end`;
 }
 
-const mustOpenInBrowser = () => inAppBrowser || (isIOS && standalone && GEO.status === 'denied');
+const mustOpenInBrowser = () => inAppBrowser && !standalone;
 
 function installHint() {
   // Открыто в Telegram, ВК или с экрана «Домой» iPhone — там геопозиция не работает: ведём в браузер.
@@ -1552,10 +1552,8 @@ function installHint() {
   let hidden = false;
   try { hidden = localStorage.getItem(HINT_KEY) === 'hidden'; } catch (_) { /* нет хранилища */ }
   if (standalone || hidden) return '';
-  if (isIOS) {
-    return `<div class="hint"><button class="x" data-act="hideHint" aria-label="Скрыть">✕</button>
-      <b>Иконка Троши на экране «Домой»</b><br>Нажмите внизу Safari «Поделиться» <b>⎋</b> → «На экран "Домой"».</div>`;
-  }
+  // На iPhone иконку на экран «Домой» не предлагаем: iOS не даёт ей геопозицию.
+  if (isIOS) return '';
   if (installEvent) {
     return `<div class="hint"><button class="x" data-act="hideHint" aria-label="Скрыть">✕</button>
       <b>Установите приложение</b> — оно будет открываться с экрана телефона, даже без интернета.
@@ -1588,8 +1586,7 @@ function homeScreen() {
     <button class="btn soft" data-act="album">Мой альбом</button>
     ${mustOpenInBrowser() ? '' : installHint()}
     ${j.found.length || j.badge ? `<button class="link" data-act="reset">Очистить альбом</button>` : ''}
-    <div class="muted" style="font-size:12px;opacity:.7">Веб-версия ${APP_VERSION}${standalone ? ' · веб-приложение' : ' · браузер'}
-      · геопозиция: ${GEO_DIAG.perm || '…'}${GEO_DIAG.error ? ` · ошибка ${esc(GEO_DIAG.error)}` : ''}</div>
+    <div class="muted" style="font-size:12px;opacity:.7">Веб-версия ${APP_VERSION}</div>
   </div>`;
 }
 
@@ -1956,7 +1953,6 @@ async function boot() {
   }
   S.journey = loadJourney();
   await Photos.load();
-  readGeoPermission();
   history.replaceState({ inner: false }, '');
   render();
   if ('serviceWorker' in navigator && location.protocol === 'https:') {

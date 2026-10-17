@@ -3,7 +3,7 @@
  * сохраняется в телефоне. Кусочки карты запоминаются по мере просмотра.
  * После правок в docs/app увеличьте VERSION, чтобы телефоны забрали новую версию.
  */
-const VERSION = 'v11';
+const VERSION = 'v12';
 const APP_CACHE = `karavan-app-${VERSION}`;
 const MAP_CACHE = 'karavan-map';
 const SHELL = [
