@@ -8,6 +8,7 @@ on:
       - "app/tools/rustore_publish.py"
       - ".github/workflows/rustore.yml"
       - "app/tools/generate_audio.py"
+      - "app/tools/build_web.py"
       - ".github/workflows/voice.yml"
       - "docs/**"
       - "README.md"
