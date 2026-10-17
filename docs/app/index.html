@@ -20,13 +20,27 @@
   <meta property="og:image:alt" content="Верблюжонок Троша на фоне Свято-Троицкого собора">
   <meta name="twitter:card" content="summary_large_image">
   <meta property="vk:image" content="https://qwest65.github.io/malenkiy-karavan/images/og.png">
-  <link rel="manifest" href="manifest.webmanifest">
   <link rel="icon" href="icons/favicon.png">
   <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
-  <meta name="apple-mobile-web-app-capable" content="yes">
-  <meta name="mobile-web-app-capable" content="yes">
-  <meta name="apple-mobile-web-app-status-bar-style" content="default">
   <meta name="apple-mobile-web-app-title" content="Караван">
+  <script>
+    // На iPhone иконка с экрана «Домой» должна открывать прогулку в Safari: отдельному
+    // веб-приложению iOS не даёт геопозицию. Поэтому там сайт не объявляет себя приложением.
+    // На Android — обычная установка как приложение.
+    (function () {
+      var ios = /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+      var link = document.createElement('link');
+      link.rel = 'manifest';
+      link.href = ios ? 'manifest-ios.webmanifest' : 'manifest.webmanifest';
+      document.head.appendChild(link);
+      if (!ios) {
+        var meta = document.createElement('meta');
+        meta.name = 'mobile-web-app-capable';
+        meta.content = 'yes';
+        document.head.appendChild(meta);
+      }
+    })();
+  </script>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Rubik:wght@400;500;700;800;900&display=swap" rel="stylesheet">
