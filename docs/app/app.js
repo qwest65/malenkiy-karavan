@@ -6,7 +6,7 @@
 'use strict';
 
 /** Номер веб-версии: виден внизу главного экрана, чтобы понять, обновилось ли приложение. */
-const APP_VERSION = '0.7';
+const APP_VERSION = '0.8';
 const STORE_KEY = 'karavan.journey2';
 const HINT_KEY = 'karavan.installHint';
 const MAP_STYLE = 'https://tiles.openfreemap.org/styles/liberty';
@@ -1538,8 +1538,13 @@ function installHint() {
   }
   let hidden = false;
   try { hidden = localStorage.getItem(HINT_KEY) === 'hidden'; } catch (_) { /* нет хранилища */ }
-  // На iPhone экран «Домой» не предлагаем: на новых iOS оттуда не работает геопозиция.
-  if (standalone || hidden || isIOS) return '';
+  if (standalone || hidden) return '';
+  if (isIOS) {
+    // Иконка откроет прогулку в Safari — там работают и геопозиция, и альбом.
+    return `<div class="hint"><button class="x" data-act="hideHint" aria-label="Скрыть">✕</button>
+      <b>Иконка Троши на экране «Домой»</b><br>Нажмите внизу Safari «Поделиться» <b>⎋</b> → «На экран "Домой"».
+      Если там есть переключатель «Открыть как веб-приложение» — <b>выключите</b> его, тогда прогулка будет знать, где вы.</div>`;
+  }
   if (installEvent) {
     return `<div class="hint"><button class="x" data-act="hideHint" aria-label="Скрыть">✕</button>
       <b>Установите приложение</b> — оно будет открываться с экрана телефона, даже без интернета.
