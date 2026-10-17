@@ -6,7 +6,7 @@
 'use strict';
 
 /** Номер веб-версии: виден внизу главного экрана, чтобы понять, обновилось ли приложение. */
-const APP_VERSION = '0.4';
+const APP_VERSION = '0.5';
 const STORE_KEY = 'karavan.journey2';
 const HINT_KEY = 'karavan.installHint';
 const MAP_STYLE = 'https://tiles.openfreemap.org/styles/liberty';
@@ -239,6 +239,7 @@ function onGpsHeading(c) {
     H.gps = c.heading;
     H.gpsAt = Date.now();
     H.heading = c.heading;
+    headingChanged();
   }
 }
 
@@ -247,6 +248,12 @@ function onCompass(deg) {
   H.compass = H.compass == null ? d : (H.compass + angleDelta(H.compass, d) * 0.2 + 360) % 360;
   if (Date.now() - H.gpsAt > 4000) H.heading = H.compass;
   headingChanged();
+}
+
+/** Направление, которому можно верить сейчас: компас или свежий курс GPS, пока идём. */
+function freshHeading() {
+  if (H.listening && H.compass != null) return H.heading;
+  return Date.now() - H.gpsAt < 5000 ? H.gps : null;
 }
 
 let headingFrame = 0;
@@ -259,10 +266,9 @@ function headingChanged() {
 }
 
 /**
- * Компас. На iPhone разрешение на датчики спрашивается только по нажатию, и если спросить
- * его вместе с геопозицией, iPhone молча отклоняет геопозицию. Поэтому на iPhone компас
- * включается отдельной кнопкой «🧭 Компас» после того, как геопозиция заработала;
- * на остальных телефонах — сам, без вопроса.
+ * Компас. Где он доступен без вопросов (Android), включается сам. На iPhone для него нужно
+ * отдельное разрешение — его не спрашиваем: родителю с ребёнком не до лишних окон. Там
+ * карта поворачивается по направлению движения из GPS.
  */
 const compassNeedsTap = !!(window.DeviceOrientationEvent && typeof window.DeviceOrientationEvent.requestPermission === 'function');
 
@@ -278,14 +284,7 @@ function enableCompass() {
     });
   };
   const D = window.DeviceOrientationEvent;
-  if (compassNeedsTap) {
-    D.requestPermission().then(r => {
-      if (r === 'granted') listen(); else toast('Без компаса карта не поворачивается, но подсказки поворотов работают');
-      updateWalkView();
-    }).catch(() => {});
-  } else if (D) {
-    listen();
-  }
+  if (D && !compassNeedsTap) listen();
 }
 
 const between = (a, b) => legs.get(`${a}-${b}`) || null;
@@ -647,6 +646,7 @@ function startTracking() {
   startWatch();
   if (GEO.poll == null) {
     GEO.poll = setInterval(() => {
+      if (S.screen === 'walk') { updateBanner(); drawMe(); }
       const now = Date.now();
       if (now - GEO.lastFixAt > 10000) {
         // Запрос, на который телефон так и не ответил, не должен навсегда блокировать новые.
@@ -707,21 +707,13 @@ function onFix(pos) {
   updateGuidance();
 }
 
-/** Что писать вместо шагов, пока координат нет. */
+/** Что писать вместо шагов, пока координат нет: коротко и без инструкций по настройкам. */
 function geoMessage() {
-  if (GEO.status === 'denied') {
-    return standalone
-      ? 'Геопозиция запрещена для приложения с экрана «Домой». Нажмите «Разрешить геопозицию» вверху. Если окно не появится — удалите иконку, добавьте её заново и при первом запросе нажмите «Разрешить». Или откройте прогулку во вкладке Safari.'
-      : 'Геопозиция запрещена. Включите: Настройки → Приложения → Safari → Геопозиция → «Спрашивать», и Службы геолокации → Сайты Safari → «При использовании». А пока нажимайте «Мы на месте!» у точки.';
+  if (GEO.status === 'denied' || GEO.status === 'unsupported' || Date.now() - GEO.since > 20000) {
+    return 'Без геопозиции — нажмите «Мы на месте!», когда подойдёте к точке.';
   }
-  if (GEO.status === 'unsupported') return 'Телефон не даёт геопозицию. Нажимайте «Мы на месте!» у точки.';
-  if (GEO.status === 'nosignal') return 'Нет сигнала GPS — выйдите на открытое место.';
-  if (Date.now() - GEO.since > 20000) {
-    return standalone
-      ? 'Не получаем геопозицию. Попробуйте открыть прогулку во вкладке Safari по ссылке — там геопозиция работает. Или нажимайте «Мы на месте!» у точки.'
-      : 'Не получаем геопозицию. Проверьте, что она включена, или нажимайте «Мы на месте!» у точки.';
-  }
-  return 'Ищем, где мы…';
+  if (GEO.status === 'nosignal') return 'Ловим GPS… Выйдите на открытое место.';
+  return 'Ищем, где мы… Если телефон спросит про геопозицию — нажмите «Разрешить».';
 }
 
 function updateGuidance() {
@@ -978,8 +970,9 @@ function drawLive() {
 function drawMe() {
   if (!M.me) return;
   const el = M.me.getElement();
-  el.classList.toggle('has-heading', H.heading != null);
-  if (H.heading != null) M.me.setRotation(H.heading);
+  const h = freshHeading();
+  el.classList.toggle('has-heading', h != null);
+  if (h != null) M.me.setRotation(h);
 }
 
 /** Камера навигатора: мы в центре, карта повёрнута по направлению движения. */
@@ -1494,15 +1487,30 @@ window.addEventListener('beforeinstallprompt', e => {
   if (S.screen === 'home') render();
 });
 
+const APP_URL = 'https://qwest65.github.io/malenkiy-karavan/app/';
+/** Встроенные браузеры Telegram, ВК, Instagram и т. п.: там часто нет геопозиции и звука. */
+const inAppBrowser = /Telegram|VKClient|vkontakte|Instagram|FBAN|FBAV|OKApp|; wv\)/i.test(navigator.userAgent);
+
+/** Ссылка, открывающая прогулку в обычном браузере: Safari на iPhone, браузер по умолчанию на Android. */
+function browserLink() {
+  if (isIOS) return `x-safari-${APP_URL}`;
+  return `intent://${APP_URL.replace('https://', '')}#Intent;scheme=https;end`;
+}
+
+const mustOpenInBrowser = () => inAppBrowser || (isIOS && standalone);
+
 function installHint() {
+  // Открыто в Telegram, ВК или с экрана «Домой» iPhone — там геопозиция не работает: ведём в браузер.
+  if (mustOpenInBrowser()) {
+    return `<div class="hint" style="background:#fff1c9;color:#7a4b00">
+      <b>Откройте прогулку в ${isIOS ? 'Safari' : 'браузере'}</b> — здесь телефон не даёт Троше узнать, где вы.
+      <div style="margin-top:10px"><a class="btn" href="${browserLink()}" style="display:grid;place-items:center;text-decoration:none">Открыть в ${isIOS ? 'Safari' : 'браузере'}</a></div>
+      <div style="margin-top:8px;font-size:14px">Не открылось? Нажмите ⋯ или «Поделиться» и выберите «Открыть в ${isIOS ? 'Safari' : 'браузере'}».</div></div>`;
+  }
   let hidden = false;
   try { hidden = localStorage.getItem(HINT_KEY) === 'hidden'; } catch (_) { /* нет хранилища */ }
-  if (standalone || hidden) return '';
-  if (isIOS) {
-    return `<div class="hint"><button class="x" data-act="hideHint" aria-label="Скрыть">✕</button>
-      <b>Установите на экран «Домой»</b><br>Нажмите внизу Safari кнопку «Поделиться» <b>⎋</b>, затем «На экран "Домой"».
-      Так приложение откроется без интернета и не потеряет альбом.</div>`;
-  }
+  // На iPhone экран «Домой» не предлагаем: на новых iOS оттуда не работает геопозиция.
+  if (standalone || hidden || isIOS) return '';
   if (installEvent) {
     return `<div class="hint"><button class="x" data-act="hideHint" aria-label="Скрыть">✕</button>
       <b>Установите приложение</b> — оно будет открываться с экрана телефона, даже без интернета.
@@ -1515,6 +1523,7 @@ function homeScreen() {
   const j = S.journey;
   return `<div class="page">
     <h1 class="h1">Маленький караван</h1>
+    ${mustOpenInBrowser() ? installHint() : ''}
     ${sticker('trosha', 'trosha-home')}
     <div class="panel">
       <div class="h2">${esc(route.title)}</div>
@@ -1532,7 +1541,7 @@ function homeScreen() {
       <button class="btn soft" data-act="finish">Завершить прогулку</button>`
     : `<button class="btn" data-act="choose">Начать прогулку</button>`}
     <button class="btn soft" data-act="album">Мой альбом</button>
-    ${installHint()}
+    ${mustOpenInBrowser() ? '' : installHint()}
     ${j.found.length || j.badge ? `<button class="link" data-act="reset">Очистить альбом</button>` : ''}
     <div class="muted" style="font-size:12px;opacity:.7">Веб-версия ${APP_VERSION}</div>
   </div>`;
@@ -1600,8 +1609,6 @@ function walkScreen() {
         <button class="round" data-act="fit">⤢</button>
       </div>
       <div id="banner"></div>
-      <button id="compass-btn" class="chip" data-act="compass" hidden>🧭 Включить компас — карта будет поворачиваться</button>
-      <button id="geo-retry" class="chip" data-act="geoRetry" hidden>📍 Разрешить геопозицию</button>
       <div id="route-src" class="route-src" hidden></div>
     </div>
     <div class="walk-panel" id="walk-panel">
@@ -1636,9 +1643,10 @@ function updateBanner() {
   const ins = S.instruction;
   const near = d <= NEAR_METERS;
   let arrow = '↑', rotation = 0, title, subtitle;
-  if (H.heading != null && (near || !ins)) {
+  const heading = freshHeading();
+  if (heading != null && (near || !ins)) {
     const steps = kidSteps(d);
-    rotation = angleDelta(H.heading, bearingDegrees([here.lat, here.lon], [stop.lat, stop.lon]));
+    rotation = angleDelta(heading, bearingDegrees([here.lat, here.lon], [stop.lat, stop.lon]));
     title = near ? 'Точка рядом — иди по стрелке' : 'Иди по стрелке к точке';
     subtitle = `≈ ${steps} ${stepsWord(steps)} · ${formatDistance(d)}`;
   } else if (ins && ins.turn) {
@@ -1673,7 +1681,7 @@ function updateWalkView() {
       : `<div class="muted" style="font-size:${geoMessage().length > 20 ? 16 : 20}px;line-height:1.35">${esc(geoMessage())}</div>`;
   }
   if (small) {
-    small.textContent = d != null ? `≈ ${kidSteps(d)} ${stepsWord(kidSteps(d))}` : (GEO.status === 'denied' ? 'Геопозиция запрещена' : 'Ищем, где мы…');
+    small.textContent = d != null ? `≈ ${kidSteps(d)} ${stepsWord(kidSteps(d))}` : (GEO.status === 'denied' ? 'Нажмите 🔔 у точки' : 'Ищем, где мы…');
     small.style.color = d != null ? '' : 'var(--muted)';
   }
   updateBanner();
@@ -1691,10 +1699,6 @@ function updateWalkView() {
     src.textContent = text || '';
     src.hidden = !text || d == null;
   }
-  const cb = document.getElementById('compass-btn');
-  if (cb) cb.hidden = !(compassNeedsTap && !H.listening && GEO.status === 'ok');
-  const gr = document.getElementById('geo-retry');
-  if (gr) gr.hidden = !(GEO.status === 'denied' || (GEO.status === 'wait' && Date.now() - GEO.since > 20000));
   const fb = document.getElementById('follow-btn');
   if (fb) fb.hidden = M.following;
   drawLive();
@@ -1863,8 +1867,6 @@ $app.addEventListener('click', e => {
     case 'parentStory': toggleParentStory(); break;
     case 'story': toggleStopStory(); break;
     case 'complete': completeStop(); break;
-    case 'compass': enableCompass(); break;
-    case 'geoRetry': GEO.status = 'wait'; GEO.since = Date.now(); GEO.asking = false; G.denied = false; startTracking(); updateWalkView(); break;
     case 'camera': pickPhoto(+d.stop, true); break;
     case 'gallery': pickPhoto(+d.stop, false); break;
     case 'share': shareCollage(); break;
