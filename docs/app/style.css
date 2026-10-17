@@ -207,6 +207,10 @@ body.walking #app > * { pointer-events: auto; }
 .album-photo { position: relative; width: 130px; height: 130px; }
 .album-photo > img:first-child { width: 130px; height: 130px; object-fit: cover; border-radius: 14px; }
 .album-photo .corner { position: absolute; right: -8px; top: -8px; width: 48px; height: 48px; }
+.chip {
+  align-self: flex-start; border: 0; background: var(--card); color: var(--ink); font-size: 15px; font-weight: 700;
+  border-radius: 16px; padding: 10px 14px; box-shadow: 0 2px 8px rgba(0,0,0,0.18); text-align: left;
+}
 .route-src {
   align-self: flex-start; background: rgba(255,251,243,0.95); color: var(--muted); font-size: 13px; font-weight: 500;
   border-radius: 12px; padding: 6px 10px; box-shadow: 0 2px 6px rgba(0,0,0,0.12);

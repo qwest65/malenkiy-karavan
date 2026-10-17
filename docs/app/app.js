@@ -6,7 +6,7 @@
 'use strict';
 
 /** Номер веб-версии: виден внизу главного экрана, чтобы понять, обновилось ли приложение. */
-const APP_VERSION = '0.3';
+const APP_VERSION = '0.4';
 const STORE_KEY = 'karavan.journey2';
 const HINT_KEY = 'karavan.installHint';
 const MAP_STYLE = 'https://tiles.openfreemap.org/styles/liberty';
@@ -258,7 +258,14 @@ function headingChanged() {
   });
 }
 
-/** Компас. На iPhone разрешение спрашивается только по нажатию — зовём из «Идём!». */
+/**
+ * Компас. На iPhone разрешение на датчики спрашивается только по нажатию, и если спросить
+ * его вместе с геопозицией, iPhone молча отклоняет геопозицию. Поэтому на iPhone компас
+ * включается отдельной кнопкой «🧭 Компас» после того, как геопозиция заработала;
+ * на остальных телефонах — сам, без вопроса.
+ */
+const compassNeedsTap = !!(window.DeviceOrientationEvent && typeof window.DeviceOrientationEvent.requestPermission === 'function');
+
 function enableCompass() {
   if (H.listening) return;
   const listen = () => {
@@ -271,8 +278,11 @@ function enableCompass() {
     });
   };
   const D = window.DeviceOrientationEvent;
-  if (D && typeof D.requestPermission === 'function') {
-    D.requestPermission().then(r => { if (r === 'granted') listen(); }).catch(() => {});
+  if (compassNeedsTap) {
+    D.requestPermission().then(r => {
+      if (r === 'granted') listen(); else toast('Без компаса карта не поворачивается, но подсказки поворотов работают');
+      updateWalkView();
+    }).catch(() => {});
   } else if (D) {
     listen();
   }
@@ -630,6 +640,7 @@ const GEO_OPTIONS = { enableHighAccuracy: true, maximumAge: 2000, timeout: 20000
 const GEO = { status: 'idle', since: 0, lastFixAt: 0, asking: false, askedAt: 0, watchAt: 0, poll: null };
 
 function startTracking() {
+  if (!compassNeedsTap) enableCompass();
   if (!('geolocation' in navigator)) { GEO.status = 'unsupported'; return; }
   if (GEO.status !== 'ok') { GEO.status = 'wait'; GEO.since = Date.now(); }
   askOnce();
@@ -699,7 +710,9 @@ function onFix(pos) {
 /** Что писать вместо шагов, пока координат нет. */
 function geoMessage() {
   if (GEO.status === 'denied') {
-    return 'Геопозиция запрещена. Включите: Настройки → Конфиденциальность → Службы геолокации → Сайты Safari → «При использовании» и «Точная геопозиция». А пока нажимайте «Мы на месте!» у точки.';
+    return standalone
+      ? 'Геопозиция запрещена для приложения с экрана «Домой». Нажмите «Разрешить геопозицию» вверху. Если окно не появится — удалите иконку, добавьте её заново и при первом запросе нажмите «Разрешить». Или откройте прогулку во вкладке Safari.'
+      : 'Геопозиция запрещена. Включите: Настройки → Приложения → Safari → Геопозиция → «Спрашивать», и Службы геолокации → Сайты Safari → «При использовании». А пока нажимайте «Мы на месте!» у точки.';
   }
   if (GEO.status === 'unsupported') return 'Телефон не даёт геопозицию. Нажимайте «Мы на месте!» у точки.';
   if (GEO.status === 'nosignal') return 'Нет сигнала GPS — выйдите на открытое место.';
@@ -1022,7 +1035,6 @@ function startWalk(selection) {
   setJourney({ ...S.journey, plan: chosen, position: 0, walkFound: [] });
   S.celebrated.clear();
   G.target = null;
-  enableCompass();
   startTracking();
   go('walk');
   player.play('intro_trosha', 'phrase_road');
@@ -1032,7 +1044,6 @@ function resumeWalk() {
   if (!J.inProgress) return;
   player.stop();
   G.target = null;
-  enableCompass();
   startTracking();
   go('walk');
   player.play('phrase_go');
@@ -1589,6 +1600,8 @@ function walkScreen() {
         <button class="round" data-act="fit">⤢</button>
       </div>
       <div id="banner"></div>
+      <button id="compass-btn" class="chip" data-act="compass" hidden>🧭 Включить компас — карта будет поворачиваться</button>
+      <button id="geo-retry" class="chip" data-act="geoRetry" hidden>📍 Разрешить геопозицию</button>
       <div id="route-src" class="route-src" hidden></div>
     </div>
     <div class="walk-panel" id="walk-panel">
@@ -1678,6 +1691,10 @@ function updateWalkView() {
     src.textContent = text || '';
     src.hidden = !text || d == null;
   }
+  const cb = document.getElementById('compass-btn');
+  if (cb) cb.hidden = !(compassNeedsTap && !H.listening && GEO.status === 'ok');
+  const gr = document.getElementById('geo-retry');
+  if (gr) gr.hidden = !(GEO.status === 'denied' || (GEO.status === 'wait' && Date.now() - GEO.since > 20000));
   const fb = document.getElementById('follow-btn');
   if (fb) fb.hidden = M.following;
   drawLive();
@@ -1846,6 +1863,8 @@ $app.addEventListener('click', e => {
     case 'parentStory': toggleParentStory(); break;
     case 'story': toggleStopStory(); break;
     case 'complete': completeStop(); break;
+    case 'compass': enableCompass(); break;
+    case 'geoRetry': GEO.status = 'wait'; GEO.since = Date.now(); GEO.asking = false; G.denied = false; startTracking(); updateWalkView(); break;
     case 'camera': pickPhoto(+d.stop, true); break;
     case 'gallery': pickPhoto(+d.stop, false); break;
     case 'share': shareCollage(); break;
