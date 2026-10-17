@@ -5,6 +5,8 @@
  */
 'use strict';
 
+/** Номер веб-версии: виден внизу главного экрана, чтобы понять, обновилось ли приложение. */
+const APP_VERSION = '0.2';
 const STORE_KEY = 'karavan.journey2';
 const HINT_KEY = 'karavan.installHint';
 const MAP_STYLE = 'https://tiles.openfreemap.org/styles/liberty';
@@ -272,8 +274,50 @@ class StreetGraph {
 }
 let streets = null;
 
-/** Пешеходный путь у OSRM (профиль foot), если мы далеко от улиц центра. Без интернета — null. */
+/** Ломаная Valhalla (polyline с точностью 6 знаков) → [[lat, lon], …]. */
+function decodePolyline6(str) {
+  const out = [];
+  let i = 0, lat = 0, lon = 0;
+  while (i < str.length) {
+    for (const k of [0, 1]) {
+      let shift = 0, result = 0, b;
+      do { b = str.charCodeAt(i++) - 63; result |= (b & 0x1f) << shift; shift += 5; } while (b >= 0x20);
+      const d = result & 1 ? ~(result >> 1) : result >> 1;
+      if (k === 0) lat += d; else lon += d;
+    }
+    out.push([lat / 1e6, lon / 1e6]);
+  }
+  return out;
+}
+
+/** Запасной пешеходный маршрутизатор — Valhalla сервиса FOSSGIS (им пользуется сайт OpenStreetMap). */
+async function valhallaRoute(from, to) {
+  const q = { locations: [{ lat: from[0], lon: from[1] }, { lat: to[0], lon: to[1] }], costing: 'pedestrian' };
+  try {
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), 15000);
+    const res = await fetch(`https://valhalla1.openstreetmap.de/route?json=${encodeURIComponent(JSON.stringify(q))}`, { signal: ctrl.signal });
+    clearTimeout(timer);
+    if (!res.ok) return null;
+    const json = await res.json();
+    const pts = decodePolyline6(json.trip.legs[0].shape);
+    return pts.length >= 2 ? [from, ...pts, to] : null;
+  } catch (_) {
+    return null;
+  }
+}
+
+/** Пешеходный путь через интернет: сначала OSRM, если он не ответил — Valhalla. */
 async function onlineRoute(from, to) {
+  const osrm = await osrmRoute(from, to);
+  if (osrm) return { line: osrm, source: 'osrm' };
+  const valhalla = await valhallaRoute(from, to);
+  if (valhalla) return { line: valhalla, source: 'valhalla' };
+  return null;
+}
+
+/** Пешеходный путь у OSRM (профиль foot), если мы далеко от улиц центра. Без интернета — null. */
+async function osrmRoute(from, to) {
   const url = `https://routing.openstreetmap.de/routed-foot/route/v1/driving/` +
     `${from[1].toFixed(6)},${from[0].toFixed(6)};${to[1].toFixed(6)},${to[0].toFixed(6)}?overview=full&geometries=geojson`;
   try {
@@ -445,6 +489,8 @@ const G = {
   watch: null, arrival: null, target: null, near: false, ahead: null, speed: null, denied: false,
   // Путь «от меня до точки» по улицам: к первой точке прогулки или построенный заново, если свернули.
   approach: null, approachTarget: null, offFixes: 0, wasOnPath: false,
+  // Откуда путь к точке — для подписи на карте во время проверки веб-версии.
+  source: null,
   lastReroute: -Infinity, lastOnline: -Infinity, inFlight: false,
 };
 /** Как Reroute в WalkPath.kt: по встроенным улицам — раз в 3 с, через интернет — раз в 20 с. */
@@ -452,28 +498,94 @@ const REROUTE_CONFIRM_FIXES = 2;
 const OFFLINE_INTERVAL_MS = 3000;
 const ONLINE_INTERVAL_MS = 20000;
 
+/*
+ * Геопозиция. У приложения с экрана «Домой» iPhone постоянное слежение (watchPosition)
+ * иногда молча не запускается — ни окна разрешения, ни ошибки. Поэтому по нажатию сначала
+ * разовый запрос (он показывает окно «Разрешить?»), потом слежение, а если оно молчит
+ * дольше 10 секунд — разовые запросы каждые 3 секунды.
+ */
+const GEO_OPTIONS = { enableHighAccuracy: true, maximumAge: 2000, timeout: 20000 };
+const GEO = { status: 'idle', since: 0, lastFixAt: 0, asking: false, askedAt: 0, watchAt: 0, poll: null };
+
 function startTracking() {
-  if (G.watch != null || !('geolocation' in navigator)) return;
-  G.watch = navigator.geolocation.watchPosition(onFix, err => {
-    if (err.code === err.PERMISSION_DENIED) {
-      G.denied = true;
-      stopTracking();
-      toast('Без геолокации нажимайте «Мы на месте!», когда подойдёте к точке');
-      if (S.screen === 'walk') render();
-    }
-  }, { enableHighAccuracy: true, maximumAge: 2000, timeout: 30000 });
+  if (!('geolocation' in navigator)) { GEO.status = 'unsupported'; return; }
+  if (GEO.status !== 'ok') { GEO.status = 'wait'; GEO.since = Date.now(); }
+  askOnce();
+  startWatch();
+  if (GEO.poll == null) {
+    GEO.poll = setInterval(() => {
+      const now = Date.now();
+      if (now - GEO.lastFixAt > 10000) {
+        // Запрос, на который телефон так и не ответил, не должен навсегда блокировать новые.
+        if (GEO.asking && now - GEO.askedAt > 25000) GEO.asking = false;
+        askOnce();
+        // Молчащее слежение перезапускаем раз в 30 секунд.
+        if (now - GEO.watchAt > 30000) startWatch(true);
+      }
+      if (S.screen === 'walk') updateWalkView();
+    }, 3000);
+  }
+}
+
+function startWatch(restart) {
+  if (restart && G.watch != null) { navigator.geolocation.clearWatch(G.watch); G.watch = null; }
+  if (G.watch != null) return;
+  GEO.watchAt = Date.now();
+  G.watch = navigator.geolocation.watchPosition(onFix, onGeoError, GEO_OPTIONS);
+}
+
+function askOnce() {
+  if (GEO.asking) return;
+  GEO.asking = true;
+  GEO.askedAt = Date.now();
+  navigator.geolocation.getCurrentPosition(
+    pos => { GEO.asking = false; onFix(pos); },
+    err => { GEO.asking = false; onGeoError(err); },
+    { enableHighAccuracy: true, maximumAge: 0, timeout: 20000 });
 }
 
 function stopTracking() {
   if (G.watch != null) navigator.geolocation.clearWatch(G.watch);
   G.watch = null;
+  clearInterval(GEO.poll);
+  GEO.poll = null;
+  if (GEO.status === 'ok') GEO.status = 'idle';
+}
+
+function onGeoError(err) {
+  if (err.code === err.PERMISSION_DENIED) {
+    GEO.status = 'denied';
+    G.denied = true;
+    stopTracking();
+  } else if (GEO.status !== 'ok') {
+    GEO.status = err.code === err.POSITION_UNAVAILABLE ? 'nosignal' : 'wait';
+  }
+  if (S.screen === 'walk') updateWalkView();
 }
 
 function onFix(pos) {
   const c = pos.coords;
+  GEO.status = 'ok';
+  GEO.lastFixAt = Date.now();
+  G.denied = false;
   S.fix = { lat: c.latitude, lon: c.longitude, acc: c.accuracy };
   G.speed = Number.isFinite(c.speed) ? c.speed : null;
   updateGuidance();
+}
+
+/** Что писать вместо шагов, пока координат нет. */
+function geoMessage() {
+  if (GEO.status === 'denied') {
+    return 'Геопозиция запрещена. Включите: Настройки → Конфиденциальность → Службы геолокации → Сайты Safari → «При использовании» и «Точная геопозиция». А пока нажимайте «Мы на месте!» у точки.';
+  }
+  if (GEO.status === 'unsupported') return 'Телефон не даёт геопозицию. Нажимайте «Мы на месте!» у точки.';
+  if (GEO.status === 'nosignal') return 'Нет сигнала GPS — выйдите на открытое место.';
+  if (Date.now() - GEO.since > 20000) {
+    return standalone
+      ? 'Не получаем геопозицию. Попробуйте открыть прогулку во вкладке Safari по ссылке — там геопозиция работает. Или нажимайте «Мы на месте!» у точки.'
+      : 'Не получаем геопозицию. Проверьте, что она включена, или нажимайте «Мы на месте!» у точки.';
+  }
+  return 'Ищем, где мы…';
 }
 
 function updateGuidance() {
@@ -503,6 +615,8 @@ function updateGuidance() {
   if (pr && pr.off <= ON_PATH_METERS) {
     G.offFixes = 0;
     G.wasOnPath = true;
+    if (!approach) G.source = 'leg';
+    G.straight = false;
     const p = path.pointAt(pr.along);
     S.shown = { lat: p[0], lon: p[1] };
     S.distance = pr.remaining;
@@ -511,8 +625,9 @@ function updateGuidance() {
     G.offFixes++;
     S.shown = fix;
     S.distance = straight;
-    // Пока путь по улицам строится (или его нет совсем) — тянем к точке прямую.
+    // Пока путь по улицам строится (или его нет совсем) — тянем к точке пунктир по прямой.
     G.ahead = [[fix.lat, fix.lon], [stop.lat, stop.lon]];
+    G.straight = true;
     if (S.screen === 'walk') reroute(fix, target, path != null);
   }
   if (!G.near && S.distance <= NEAR_METERS && S.distance > radius) {
@@ -540,6 +655,7 @@ function reroute(fix, target, hasPath) {
   const to = [route.stops[target].lat, route.stops[target].lon];
   const line = streets ? streets.route(from, to) : null;
   if (line) {
+    G.source = 'streets';
     setApproach(line, target);
     updateGuidance();
     return;
@@ -547,11 +663,16 @@ function reroute(fix, target, hasPath) {
   if (G.inFlight || now - G.lastOnline < ONLINE_INTERVAL_MS) return;
   G.inFlight = true;
   G.lastOnline = now;
+  G.source = G.source === 'osrm' || G.source === 'valhalla' ? G.source : 'pending';
   onlineRoute(from, to).then(online => {
     G.inFlight = false;
     if (online && J.active === target) {
-      setApproach(online, target);
+      G.source = online.source;
+      setApproach(online.line, target);
       updateGuidance();
+    } else if (!online) {
+      G.source = navigator.onLine === false ? 'offline' : 'failed';
+      updateWalkView();
     }
   });
 }
@@ -617,8 +738,12 @@ function addLayers() {
       paint: { 'line-color': '#d2463c', 'line-opacity': 0.35, 'line-width': 5, 'line-dasharray': [1, 1.6] } });
   }
   if (!m.getLayer('ahead')) {
-    m.addLayer({ id: 'ahead', type: 'line', source: 'ahead', layout: { 'line-cap': 'round', 'line-join': 'round' },
-      paint: { 'line-color': '#3e9c6a', 'line-width': 8 } });
+    m.addLayer({ id: 'ahead', type: 'line', source: 'ahead', filter: ['!=', ['get', 'straight'], true],
+      layout: { 'line-cap': 'round', 'line-join': 'round' }, paint: { 'line-color': '#3e9c6a', 'line-width': 8 } });
+  }
+  if (!m.getLayer('ahead-straight')) {
+    m.addLayer({ id: 'ahead-straight', type: 'line', source: 'ahead', filter: ['==', ['get', 'straight'], true],
+      layout: { 'line-cap': 'round' }, paint: { 'line-color': '#3e9c6a', 'line-width': 6, 'line-dasharray': [0.5, 2] } });
   }
 }
 
@@ -680,7 +805,7 @@ function drawLive() {
     }
   }
   if (M.ready) {
-    const ahead = G.ahead && J.active != null ? [lineFeature(G.ahead)] : [];
+    const ahead = G.ahead && J.active != null ? [{ ...lineFeature(G.ahead), properties: { straight: !!G.straight } }] : [];
     M.map.getSource('ahead').setData({ type: 'FeatureCollection', features: ahead });
   }
 }
@@ -736,10 +861,32 @@ function resumeWalk() {
 
 function pause() { player.stop(); go('home'); }
 
-function finishWalk() {
-  if (J.inProgress && confirm('Завершить прогулку?\n\nНайденные вещи останутся в альбоме. Остальные точки можно пройти в другой раз.')) {
-    endWalk(false);
-  }
+/**
+ * Своё окно «Вы уверены?». Стандартный confirm() приложение с экрана «Домой» iPhone
+ * часто не показывает и сразу отвечает «нет».
+ */
+function ask(title, text, okLabel, cancelLabel) {
+  return new Promise(resolve => {
+    const box = document.createElement('div');
+    box.className = 'dialog-wrap';
+    box.innerHTML = `<div class="dialog" role="dialog" aria-modal="true">
+      <div class="dialog-t">${esc(title)}</div><div class="dialog-s">${esc(text)}</div>
+      <div class="dialog-b"><button class="link" data-a="no">${esc(cancelLabel)}</button>
+      <button class="btn" data-a="yes" style="width:auto;min-height:52px;font-size:18px">${esc(okLabel)}</button></div></div>`;
+    box.addEventListener('click', e => {
+      const a = e.target.closest('[data-a]');
+      if (!a && e.target !== box) return;
+      box.remove();
+      resolve(!!a && a.dataset.a === 'yes');
+    });
+    document.body.appendChild(box);
+  });
+}
+
+async function finishWalk() {
+  if (!J.inProgress) return;
+  const ok = await ask('Завершить прогулку?', 'Найденные вещи останутся в альбоме. Остальные точки можно пройти в другой раз.', 'Завершить', 'Гуляем дальше');
+  if (ok && J.inProgress) endWalk(false);
 }
 
 function skipStop() {
@@ -809,6 +956,7 @@ function completeStop() {
   };
   if (next.position === next.plan.length) next.badge = true;
   setJourney(next);
+  refreshCollage();
   if (J.complete) {
     endWalk(true);
   } else {
@@ -837,10 +985,12 @@ function backToWalk() { player.stop(); go('walk'); }
 function goHome() { player.stop(); go('home'); }
 function openAlbum() { player.stop(); go('album'); }
 
-function resetAlbum() {
-  if (!confirm('Очистить альбом?\n\nВсе найденные вещи и значок исчезнут, и Троша снова потеряется.')) return;
+async function resetAlbum() {
+  const ok = await ask('Очистить альбом?', 'Все найденные вещи, фото и значок исчезнут, и Троша снова потеряется.', 'Очистить', 'Отмена');
+  if (!ok) return;
   player.stop();
   setJourney(newJourney());
+  await Photos.clear();
   go('home');
 }
 
@@ -905,6 +1055,236 @@ function toast(text) {
   toastTimer = setTimeout(() => { el.hidden = true; }, 4500);
 }
 
+/* ================= Фото и коллаж ================= */
+
+/**
+ * Фото на память с точек (как PhotoStore.kt): хранятся только в телефоне, в IndexedDB,
+ * уменьшенные до 1600 px. Когда у всех найденных вещей есть фото, сам собирается коллаж.
+ */
+const Photos = {
+  db: null,
+  urls: new Map(),
+  has: new Set(),
+  collageUrl: null,
+  collageBlob: null,
+
+  open() {
+    if (this.db) return Promise.resolve(this.db);
+    return new Promise((resolve, reject) => {
+      const req = indexedDB.open('karavan', 1);
+      req.onupgradeneeded = () => req.result.createObjectStore('photos');
+      req.onsuccess = () => { this.db = req.result; resolve(this.db); };
+      req.onerror = () => reject(req.error);
+    });
+  },
+  async tx(mode, fn) {
+    const db = await this.open();
+    return new Promise((resolve, reject) => {
+      const t = db.transaction('photos', mode);
+      const r = fn(t.objectStore('photos'));
+      t.oncomplete = () => resolve(r && r.result);
+      t.onerror = () => reject(t.error);
+    });
+  },
+  async load() {
+    try {
+      const keys = await this.tx('readonly', st => st.getAllKeys());
+      for (const k of keys) {
+        const blob = await this.tx('readonly', st => st.get(k));
+        if (!blob) continue;
+        if (k === 'collage') { this.collageBlob = blob; this.collageUrl = URL.createObjectURL(blob); }
+        else { this.has.add(+k); this.urls.set(+k, URL.createObjectURL(blob)); }
+      }
+    } catch (_) { /* нет IndexedDB — фото не сохраняются */ }
+  },
+  url: i => Photos.urls.get(i) || null,
+  async save(i, blob) {
+    await this.tx('readwrite', st => st.put(blob, String(i)));
+    if (this.urls.has(i)) URL.revokeObjectURL(this.urls.get(i));
+    this.urls.set(i, URL.createObjectURL(blob));
+    this.has.add(i);
+  },
+  async clear() {
+    try { await this.tx('readwrite', st => st.clear()); } catch (_) { /* нечего чистить */ }
+    this.urls.forEach(u => URL.revokeObjectURL(u));
+    this.urls.clear();
+    this.has.clear();
+    this.setCollage(null);
+  },
+  async setCollage(blob) {
+    if (this.collageUrl) URL.revokeObjectURL(this.collageUrl);
+    this.collageBlob = blob;
+    this.collageUrl = blob ? URL.createObjectURL(blob) : null;
+    try { await this.tx('readwrite', st => (blob ? st.put(blob, 'collage') : st.delete('collage'))); } catch (_) { /* без сохранения */ }
+  },
+};
+
+const loadImage = src => new Promise((resolve, reject) => {
+  const img = new Image();
+  img.onload = () => resolve(img);
+  img.onerror = reject;
+  img.src = src;
+});
+
+/** Снимок с камеры или из галереи → JPEG до 1600 px. Браузер сам поворачивает фото по EXIF. */
+async function importPhoto(stop, file) {
+  const url = URL.createObjectURL(file);
+  try {
+    const img = await loadImage(url);
+    const scale = Math.min(1, 1600 / Math.max(img.naturalWidth, img.naturalHeight));
+    const c = document.createElement('canvas');
+    c.width = Math.round(img.naturalWidth * scale);
+    c.height = Math.round(img.naturalHeight * scale);
+    c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+    const blob = await new Promise(r => c.toBlob(r, 'image/jpeg', 0.85));
+    await Photos.save(stop, blob);
+    await refreshCollage();
+    if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => {});
+    render();
+  } catch (_) {
+    toast('Не удалось сохранить фото');
+  } finally {
+    URL.revokeObjectURL(url);
+  }
+}
+
+let photoStop = -1;
+function pickPhoto(stop, camera) {
+  photoStop = stop;
+  const input = document.createElement('input');
+  input.type = 'file';
+  input.accept = 'image/*';
+  if (camera) input.setAttribute('capture', 'environment');
+  input.style.display = 'none';
+  input.addEventListener('change', () => {
+    const f = input.files && input.files[0];
+    if (f && photoStop >= 0) importPhoto(photoStop, f);
+    input.remove();
+  });
+  document.body.appendChild(input);
+  input.click();
+}
+
+const photosMissing = () => S.journey.found.filter(i => !Photos.has.has(i)).length;
+const findsWord = n => (n % 10 === 1 && n % 100 !== 11 ? 'находке' : 'находкам');
+
+/** Коллаж «Мои находки с Трошей» — тот же макет, что Collage.kt в Android. */
+async function refreshCollage() {
+  const j = S.journey;
+  const found = route.default_order.filter(i => j.found.includes(i))
+    .concat(j.found.filter(i => !route.default_order.includes(i)).sort((a, b) => a - b));
+  if (!found.length || found.some(i => !Photos.has.has(i))) {
+    await Photos.setCollage(null);
+    return;
+  }
+  try {
+    if (document.fonts && document.fonts.ready) await document.fonts.ready;
+    const blob = await renderCollage(found, j.badge);
+    await Photos.setCollage(blob);
+  } catch (_) {
+    await Photos.setCollage(null);
+  }
+}
+
+async function renderCollage(found, badge) {
+  const W = 1080, MARGIN = 40, GAP = 40, HEADER = 250, CARD_W = (W - 2 * MARGIN - GAP) / 2;
+  const PHOTO = CARD_W - 40, CARD_H = PHOTO + 150, FOOTER = 320;
+  const rows = Math.ceil(found.length / 2);
+  const H = HEADER + rows * (CARD_H + GAP) + FOOTER;
+  const c = document.createElement('canvas');
+  c.width = W; c.height = H;
+  const g = c.getContext('2d');
+  const font = (size, bold) => `${bold ? 700 : 400} ${size}px Rubik, -apple-system, "Segoe UI", Roboto, sans-serif`;
+  g.fillStyle = '#e8d3b0';
+  g.fillRect(0, 0, W, H);
+  g.textAlign = 'center';
+  g.fillStyle = '#d2463c'; g.font = font(76, true);
+  g.fillText('Маленький караван', W / 2, 120);
+  g.fillStyle = '#3b2415'; g.font = font(40);
+  g.fillText(`Мои находки с Трошей · ${found.length} ${placesWord(found.length)}`, W / 2, 190);
+
+  const fit = (img, x, y, w, h) => {
+    const k = Math.min(w / img.naturalWidth, h / img.naturalHeight);
+    const dw = img.naturalWidth * k, dh = img.naturalHeight * k;
+    g.drawImage(img, x + (w - dw) / 2, y + (h - dh) / 2, dw, dh);
+  };
+  const round = (x, y, w, h, r) => {
+    g.beginPath();
+    g.moveTo(x + r, y); g.arcTo(x + w, y, x + w, y + h, r); g.arcTo(x + w, y + h, x, y + h, r);
+    g.arcTo(x, y + h, x, y, r); g.arcTo(x, y, x + w, y, r); g.closePath();
+  };
+
+  for (let k = 0; k < found.length; k++) {
+    const i = found[k];
+    const stop = route.stops[i];
+    const left = MARGIN + (k % 2) * (CARD_W + GAP);
+    const top = HEADER + Math.floor(k / 2) * (CARD_H + GAP);
+    const [photo, st] = await Promise.all([loadImage(Photos.url(i)), loadImage(`stickers/${stop.sticker}.webp`).catch(() => null)]);
+    g.save();
+    // Карточки чуть наклонены в разные стороны — как фото, приклеенные в альбом.
+    g.translate(left + CARD_W / 2, top + CARD_H / 2);
+    g.rotate((k % 2 === 0 ? -2.5 : 2) * Math.PI / 180);
+    g.translate(-(left + CARD_W / 2), -(top + CARD_H / 2));
+    g.fillStyle = 'rgba(60,30,10,0.24)'; round(left + 6, top + 10, CARD_W, CARD_H, 18); g.fill();
+    g.fillStyle = '#fff'; round(left, top, CARD_W, CARD_H, 18); g.fill();
+    const side = Math.min(photo.naturalWidth, photo.naturalHeight);
+    g.drawImage(photo, (photo.naturalWidth - side) / 2, (photo.naturalHeight - side) / 2, side, side, left + 20, top + 20, PHOTO, PHOTO);
+    g.fillStyle = '#3b2415'; g.font = font(34, true);
+    wrapText(g, stop.title, left + CARD_W / 2, top + 20 + PHOTO + 56, PHOTO, 42, 2);
+    if (st) fit(st, left + CARD_W - 130, top - 30, 150, 150);
+    g.restore();
+  }
+
+  const footTop = HEADER + rows * (CARD_H + GAP);
+  const trosha = await loadImage('stickers/trosha.webp').catch(() => null);
+  if (trosha) fit(trosha, MARGIN, footTop + 20, 280, 270);
+  if (badge) {
+    const b = await loadImage(`stickers/${route.badge}.webp`).catch(() => null);
+    if (b) fit(b, W - MARGIN - 270, footTop + 20, 270, 270);
+    g.fillStyle = '#d2463c'; g.font = font(44, true);
+    g.fillText('Юный караванщик!', W / 2, footTop + 170);
+  } else {
+    g.fillStyle = '#7a6150'; g.font = font(40);
+    g.fillText('Продолжение следует…', W / 2, footTop + 170);
+  }
+  return new Promise(r => c.toBlob(r, 'image/jpeg', 0.9));
+}
+
+function wrapText(g, text, cx, y, maxW, lineH, maxLines) {
+  const words = text.split(' ');
+  const lines = [];
+  let line = '';
+  for (const w of words) {
+    const t = line ? `${line} ${w}` : w;
+    if (g.measureText(t).width > maxW && line) { lines.push(line); line = w; } else line = t;
+  }
+  if (line) lines.push(line);
+  if (lines.length > maxLines) {
+    lines.length = maxLines;
+    let last = lines[maxLines - 1];
+    while (g.measureText(`${last}…`).width > maxW && last.length) last = last.slice(0, -1);
+    lines[maxLines - 1] = `${last}…`;
+  }
+  lines.forEach((l, k) => g.fillText(l, cx, y + k * lineH));
+}
+
+/** Поделиться коллажем: меню iPhone/Android «Сохранить изображение», мессенджеры; иначе — скачать файл. */
+async function shareCollage() {
+  const blob = Photos.collageBlob;
+  if (!blob) return;
+  const file = new File([blob], 'malenkiy-karavan.jpg', { type: 'image/jpeg' });
+  if (navigator.canShare && navigator.canShare({ files: [file] })) {
+    try { await navigator.share({ files: [file], title: 'Маленький караван' }); } catch (_) { /* отменили */ }
+    return;
+  }
+  const a = document.createElement('a');
+  a.href = Photos.collageUrl;
+  a.download = 'malenkiy-karavan.jpg';
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+}
+
 /* ================= Экраны ================= */
 
 const sticker = (name, cls = '', size = '') =>
@@ -964,6 +1344,7 @@ function homeScreen() {
     <button class="btn soft" data-act="album">Мой альбом</button>
     ${installHint()}
     ${j.found.length || j.badge ? `<button class="link" data-act="reset">Очистить альбом</button>` : ''}
+    <div class="muted" style="font-size:12px;opacity:.7">Веб-версия ${APP_VERSION}</div>
   </div>`;
 }
 
@@ -1029,6 +1410,7 @@ function walkScreen() {
         <button class="round" data-act="fit">⤢</button>
       </div>
       <div id="banner"></div>
+      <div id="route-src" class="route-src" hidden></div>
     </div>
     <div class="walk-panel" id="walk-panel">
       <button class="grip" data-act="panel" aria-label="Свернуть или развернуть"><span></span></button>
@@ -1058,10 +1440,10 @@ function updateWalkView() {
   if (big) {
     big.innerHTML = d != null
       ? `<div class="steps-big">≈ ${kidSteps(d)} ${stepsWord(kidSteps(d))}</div><div class="muted" style="font-size:14px">${formatDistance(d)} для взрослых</div>`
-      : `<div class="muted" style="font-size:20px">${G.denied ? 'Геолокация выключена' : 'Ищем, где мы…'}</div>`;
+      : `<div class="muted" style="font-size:${geoMessage().length > 20 ? 16 : 20}px;line-height:1.35">${esc(geoMessage())}</div>`;
   }
   if (small) {
-    small.textContent = d != null ? `≈ ${kidSteps(d)} ${stepsWord(kidSteps(d))}` : 'Ищем, где мы…';
+    small.textContent = d != null ? `≈ ${kidSteps(d)} ${stepsWord(kidSteps(d))}` : (GEO.status === 'denied' ? 'Геопозиция запрещена' : 'Ищем, где мы…');
     small.style.color = d != null ? '' : 'var(--muted)';
   }
   const banner = document.getElementById('banner');
@@ -1069,6 +1451,20 @@ function updateWalkView() {
     banner.innerHTML = d != null && d <= NEAR_METERS
       ? `<div class="banner"><div class="arrow">📍</div><div><div class="t">Точка рядом!</div><div class="s">Смотри по сторонам · ${formatDistance(d)}</div></div></div>`
       : '';
+  }
+  const src = document.getElementById('route-src');
+  if (src) {
+    const text = {
+      leg: 'Путь: линия маршрута',
+      streets: 'Путь: по улицам центра',
+      osrm: 'Путь: через интернет (OSRM)',
+      valhalla: 'Путь: через интернет (Valhalla)',
+      pending: 'Путь: спрашиваем у сервиса маршрутов…',
+      failed: 'Путь: сервис маршрутов не ответил — показана прямая',
+      offline: 'Путь: нет интернета — показана прямая',
+    }[G.source];
+    src.textContent = text || '';
+    src.hidden = !text || d == null;
   }
   const fb = document.getElementById('follow-btn');
   if (fb) fb.hidden = M.following;
@@ -1108,6 +1504,15 @@ function stopScreen() {
         : choice != null ? '<div class="red" style="font-size:18px">Не совсем — попробуй ещё раз!</div>' : ''}
     </div>
     ${stop.activity ? `<div class="panel"><div class="who">🎲 Игра</div><p>${esc(stop.activity)}</p></div>` : ''}
+    <div class="panel">
+      <div class="who">📷 Фото на память</div>
+      ${Photos.url(i) ? `<img class="stop-photo" src="${Photos.url(i)}" alt="Фото с точки">`
+        : '<p style="font-size:16px">Сфотографируйтесь здесь вместе — из фото сложится коллаж в альбоме.</p>'}
+      <div class="row">
+        <button class="btn soft" data-act="camera" data-stop="${i}" style="min-height:50px;font-size:17px">${Photos.url(i) ? 'Переснять' : '📸 Камера'}</button>
+        <button class="btn soft" data-act="gallery" data-stop="${i}" style="min-height:50px;font-size:17px">🖼 Из галереи</button>
+      </div>
+    </div>
     <div class="panel kraft">
       <button class="parent-toggle" data-act="parent">${S.parentOpen ? '▾' : '▸'} Для взрослых</button>
       ${S.parentOpen ? `<p style="font-size:16px">${esc(stop.parent)}</p>
@@ -1147,12 +1552,24 @@ function albumScreen() {
     <div class="back-row"><button class="link" data-act="home">← Назад</button></div>
     <h1 class="h1">Мой альбом</h1>
     <div class="muted" style="font-size:17px">Найдено ${j.found.length} из ${route.stops.length}</div>
+    ${Photos.collageUrl ? `<div class="panel">
+        <div class="bold" style="font-size:20px">🖼 Коллаж прогулки</div>
+        <img class="collage" src="${Photos.collageUrl}" alt="Коллаж из фото прогулки">
+        <button class="btn soft" data-act="share">Поделиться или сохранить</button>
+      </div>`
+    : j.found.length ? `<div class="panel gold"><p style="font-size:16px">Добавьте фото ещё к ${photosMissing()} ${findsWord(photosMissing())} — и коллаж соберётся сам.</p></div>` : ''}
     <div class="album">
       ${route.stops.map((s, i) => {
         const found = J.isFound(i);
-        return `<div class="album-card">${sticker(s.sticker, found ? '' : 'locked')}
+        const photo = found ? Photos.url(i) : null;
+        return `<div class="album-card">
+          ${photo ? `<div class="album-photo"><img src="${photo}" alt="Фото: ${esc(s.title)}">${sticker(s.sticker, 'corner')}</div>` : sticker(s.sticker, found ? '' : 'locked')}
           <div class="t ${found ? '' : 'muted'}">${found ? esc(s.item) : 'Ещё не нашли'}</div>
-          <div class="s">${esc(s.title)}</div></div>`;
+          <div class="s">${esc(s.title)}</div>
+          ${found ? `<div class="row" style="justify-content:center;gap:6px">
+            <button class="small" data-act="camera" data-stop="${i}" aria-label="Снять фото">📸</button>
+            <button class="small" data-act="gallery" data-stop="${i}" aria-label="Фото из галереи">🖼</button></div>` : ''}
+        </div>`;
       }).join('')}
       <div class="album-card wide">${sticker(route.badge, j.badge ? '' : 'locked')}
         <div class="t" style="font-size:18px">${j.badge ? 'Юный караванщик' : 'Значок — за прогулку, пройденную до конца'}</div></div>
@@ -1217,6 +1634,9 @@ $app.addEventListener('click', e => {
     case 'parentStory': toggleParentStory(); break;
     case 'story': toggleStopStory(); break;
     case 'complete': completeStop(); break;
+    case 'camera': pickPhoto(+d.stop, true); break;
+    case 'gallery': pickPhoto(+d.stop, false); break;
+    case 'share': shareCollage(); break;
     case 'hideHint': try { localStorage.setItem(HINT_KEY, 'hidden'); } catch (_) { /* нет хранилища */ } render(); break;
     case 'install': if (installEvent) { installEvent.prompt(); installEvent = null; render(); } break;
   }
@@ -1256,10 +1676,16 @@ async function boot() {
     }
   }
   S.journey = loadJourney();
+  await Photos.load();
   history.replaceState({ inner: false }, '');
   render();
   if ('serviceWorker' in navigator && location.protocol === 'https:') {
-    navigator.serviceWorker.register('sw.js').catch(() => { /* без офлайна */ });
+    // Обновление приложения: новая версия приходит в фоне — на главном экране перезапускаемся сами.
+    const hadController = !!navigator.serviceWorker.controller;
+    navigator.serviceWorker.addEventListener('controllerchange', () => {
+      if (hadController && S.screen === 'home') location.reload();
+    });
+    navigator.serviceWorker.register('sw.js').then(reg => reg.update()).catch(() => { /* без офлайна */ });
   }
 }
 
