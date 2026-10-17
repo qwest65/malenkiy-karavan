@@ -3,13 +3,13 @@
  * сохраняется в телефоне. Кусочки карты запоминаются по мере просмотра.
  * После правок в docs/app увеличьте VERSION, чтобы телефоны забрали новую версию.
  */
-const VERSION = 'v1';
+const VERSION = 'v2';
 const APP_CACHE = `karavan-app-${VERSION}`;
 const MAP_CACHE = 'karavan-map';
 const SHELL = [
   './', 'index.html', 'app.js', 'style.css', 'manifest.webmanifest',
   'vendor/maplibre-gl.js', 'vendor/maplibre-gl.css',
-  'data/route.json', 'data/paths.json', 'data/files.json',
+  'data/route.json', 'data/paths.json', 'data/streets.json', 'data/files.json',
   'icons/icon-192.png', 'icons/icon-512.png', 'icons/apple-touch-icon.png', 'icons/favicon.png',
 ];
 

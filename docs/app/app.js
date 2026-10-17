@@ -156,6 +156,141 @@ class WalkPath {
 
 const between = (a, b) => legs.get(`${a}-${b}`) || null;
 
+/**
+ * Улицы и тротуары центра Троицка без дворов (как StreetGraph.kt): по ним прямо в телефоне,
+ * без интернета, строится путь «от меня до точки».
+ */
+class StreetGraph {
+  constructor(nodes, edges) {
+    const n = nodes.length / 2, m = edges.length / 3;
+    this.lat = new Float64Array(n);
+    this.lon = new Float64Array(n);
+    for (let i = 0; i < n; i++) { this.lat[i] = nodes[2 * i]; this.lon[i] = nodes[2 * i + 1]; }
+    this.a = new Int32Array(m);
+    this.b = new Int32Array(m);
+    this.cost = new Float64Array(m);
+    const deg = new Int32Array(n + 1);
+    for (let e = 0; e < m; e++) {
+      const a = edges[3 * e], b = edges[3 * e + 1];
+      this.a[e] = a; this.b[e] = b;
+      this.cost[e] = distanceMeters(this.lat[a], this.lon[a], this.lat[b], this.lon[b]) * edges[3 * e + 2] / 100;
+      deg[a + 1]++; deg[b + 1]++;
+    }
+    for (let i = 1; i <= n; i++) deg[i] += deg[i - 1];
+    this.start = deg;
+    this.adj = new Int32Array(m * 2);
+    const fill = deg.slice();
+    for (let e = 0; e < m; e++) { this.adj[fill[this.a[e]]++] = e; this.adj[fill[this.b[e]]++] = e; }
+  }
+
+  snap(lat, lon) {
+    let best = null;
+    const kx = 111320 * Math.cos(rad(lat));
+    for (let e = 0; e < this.a.length; e++) {
+      const a = this.a[e], b = this.b[e];
+      const bx = (this.lon[b] - this.lon[a]) * kx, by = (this.lat[b] - this.lat[a]) * 111320;
+      const px = (lon - this.lon[a]) * kx, py = (lat - this.lat[a]) * 111320;
+      const len2 = bx * bx + by * by;
+      const t = len2 === 0 ? 0 : Math.min(Math.max((px * bx + py * by) / len2, 0), 1);
+      const d = Math.hypot(px - t * bx, py - t * by);
+      if (!best || d < best.d) {
+        best = { e, t, d, p: [this.lat[a] + (this.lat[b] - this.lat[a]) * t, this.lon[a] + (this.lon[b] - this.lon[a]) * t] };
+      }
+    }
+    return best;
+  }
+
+  /** Путь по улицам от from до to ([lat, lon]); null — одна из точек дальше 150 м от улиц центра. */
+  route(from, to, maxSnap = 150) {
+    const s = this.snap(from[0], from[1]);
+    const g = this.snap(to[0], to[1]);
+    if (!s || !g || s.d > maxSnap || g.d > maxSnap) return null;
+    const middle = s.e === g.e ? [s.p, g.p] : [s.p, ...this.shortest(s, g), g.p];
+    const out = [from];
+    for (const p of [...middle, to]) {
+      const last = out[out.length - 1];
+      if (distanceMeters(last[0], last[1], p[0], p[1]) > 0.5) out.push(p);
+    }
+    if (out.length < 2) out.push(to);
+    return out;
+  }
+
+  /** Дейкстра между точками на разных отрезках. */
+  shortest(s, g) {
+    const n = this.lat.length;
+    const best = new Float64Array(n).fill(Infinity);
+    const prev = new Int32Array(n).fill(-1);
+    const heap = [];
+    const push = (node, cost, from) => {
+      if (cost >= best[node]) return;
+      best[node] = cost; prev[node] = from;
+      heap.push([cost, node]);
+      let i = heap.length - 1;
+      while (i > 0) {
+        const up = (i - 1) >> 1;
+        if (heap[up][0] <= heap[i][0]) break;
+        [heap[up], heap[i]] = [heap[i], heap[up]]; i = up;
+      }
+    };
+    const pop = () => {
+      const top = heap[0], last = heap.pop();
+      if (heap.length) {
+        heap[0] = last;
+        let i = 0;
+        for (;;) {
+          const l = 2 * i + 1, r = l + 1;
+          let m = i;
+          if (l < heap.length && heap[l][0] < heap[m][0]) m = l;
+          if (r < heap.length && heap[r][0] < heap[m][0]) m = r;
+          if (m === i) break;
+          [heap[m], heap[i]] = [heap[i], heap[m]]; i = m;
+        }
+      }
+      return top;
+    };
+    push(this.a[s.e], s.t * this.cost[s.e], -1);
+    push(this.b[s.e], (1 - s.t) * this.cost[s.e], -1);
+    const gA = this.a[g.e], gB = this.b[g.e];
+    const tailA = g.t * this.cost[g.e], tailB = (1 - g.t) * this.cost[g.e];
+    let done = 0;
+    while (heap.length) {
+      const [cost, u] = pop();
+      if (cost > best[u]) continue;
+      if (u === gA || u === gB) done++;
+      if (done === 2 || (best[gA] + tailA <= cost && best[gB] + tailB <= cost)) break;
+      for (let i = this.start[u]; i < this.start[u + 1]; i++) {
+        const e = this.adj[i];
+        push(this.a[e] === u ? this.b[e] : this.a[e], cost + this.cost[e], u);
+      }
+    }
+    const end = best[gA] + tailA <= best[gB] + tailB ? gA : gB;
+    if (best[end] === Infinity) return [];
+    const chain = [];
+    for (let k = end; k !== -1; k = prev[k]) chain.push([this.lat[k], this.lon[k]]);
+    return chain.reverse();
+  }
+}
+let streets = null;
+
+/** Пешеходный путь у OSRM (профиль foot), если мы далеко от улиц центра. Без интернета — null. */
+async function onlineRoute(from, to) {
+  const url = `https://routing.openstreetmap.de/routed-foot/route/v1/driving/` +
+    `${from[1].toFixed(6)},${from[0].toFixed(6)};${to[1].toFixed(6)},${to[0].toFixed(6)}?overview=full&geometries=geojson`;
+  try {
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), 15000);
+    const res = await fetch(url, { signal: ctrl.signal });
+    clearTimeout(timer);
+    if (!res.ok) return null;
+    const json = await res.json();
+    if (json.code !== 'Ok') return null;
+    const pts = json.routes[0].geometry.coordinates.map(c => [c[1], c[0]]);
+    return pts.length >= 2 ? [from, ...pts, to] : null;
+  } catch (_) {
+    return null;
+  }
+}
+
 function planMeters(plan) {
   let sum = 0;
   for (let i = 0; i < plan.length - 1; i++) {
@@ -306,7 +441,16 @@ class ArrivalDetector {
   check(now) { return this.stillSince != null && now - this.stillSince >= DWELL_MS; }
 }
 
-const G = { watch: null, arrival: null, target: null, near: false, ahead: null, speed: null, denied: false };
+const G = {
+  watch: null, arrival: null, target: null, near: false, ahead: null, speed: null, denied: false,
+  // Путь «от меня до точки» по улицам: к первой точке прогулки или построенный заново, если свернули.
+  approach: null, approachTarget: null, offFixes: 0, wasOnPath: false,
+  lastReroute: -Infinity, lastOnline: -Infinity, inFlight: false,
+};
+/** Как Reroute в WalkPath.kt: по встроенным улицам — раз в 3 с, через интернет — раз в 20 с. */
+const REROUTE_CONFIRM_FIXES = 2;
+const OFFLINE_INTERVAL_MS = 3000;
+const ONLINE_INTERVAL_MS = 20000;
 
 function startTracking() {
   if (G.watch != null || !('geolocation' in navigator)) return;
@@ -345,21 +489,31 @@ function updateGuidance() {
   if (G.target !== target) {
     G.target = target;
     G.near = false;
+    G.wasOnPath = false;
+    G.offFixes = 0;
     G.arrival = new ArrivalDetector(radius);
   }
   const straight = distanceMeters(fix.lat, fix.lon, stop.lat, stop.lon);
   const prev = J.previous;
-  const path = prev != null ? between(prev, target) : null;
+  const leg = prev != null ? between(prev, target) : null;
+  // Путь к точке: построенный заново «от меня», а если его нет — линия маршрута от прошлой точки.
+  const approach = G.approachTarget === target ? G.approach : null;
+  const path = approach || leg;
   const pr = path ? path.progress(fix.lat, fix.lon) : null;
   if (pr && pr.off <= ON_PATH_METERS) {
+    G.offFixes = 0;
+    G.wasOnPath = true;
     const p = path.pointAt(pr.along);
     S.shown = { lat: p[0], lon: p[1] };
     S.distance = pr.remaining;
     G.ahead = path.remainingFrom(pr.along);
   } else {
+    G.offFixes++;
     S.shown = fix;
     S.distance = straight;
+    // Пока путь по улицам строится (или его нет совсем) — тянем к точке прямую.
     G.ahead = [[fix.lat, fix.lon], [stop.lat, stop.lon]];
+    if (S.screen === 'walk') reroute(fix, target, path != null);
   }
   if (!G.near && S.distance <= NEAR_METERS && S.distance > radius) {
     G.near = true;
@@ -370,6 +524,42 @@ function updateGuidance() {
     if (arrived) { arrive(); return; }
     updateWalkView();
   }
+}
+
+/** Свернули или пути ещё нет — строим от того места, где стоим: по улицам центра, а если далеко — у OSRM. */
+function reroute(fix, target, hasPath) {
+  const now = Date.now();
+  if (now - G.lastReroute < OFFLINE_INTERVAL_MS) return;
+  if (hasPath && G.offFixes < REROUTE_CONFIRM_FIXES) return;
+  G.lastReroute = now;
+  if (hasPath && G.wasOnPath) {
+    G.wasOnPath = false;
+    player.enqueue('phrase_off_route');
+  }
+  const from = [fix.lat, fix.lon];
+  const to = [route.stops[target].lat, route.stops[target].lon];
+  const line = streets ? streets.route(from, to) : null;
+  if (line) {
+    setApproach(line, target);
+    updateGuidance();
+    return;
+  }
+  if (G.inFlight || now - G.lastOnline < ONLINE_INTERVAL_MS) return;
+  G.inFlight = true;
+  G.lastOnline = now;
+  onlineRoute(from, to).then(online => {
+    G.inFlight = false;
+    if (online && J.active === target) {
+      setApproach(online, target);
+      updateGuidance();
+    }
+  });
+}
+
+function setApproach(line, target) {
+  G.approach = new WalkPath(line);
+  G.approachTarget = target;
+  G.offFixes = 0;
 }
 
 setInterval(() => {
@@ -503,7 +693,7 @@ function fitAll() {
   const b = pts.reduce((bb, p) => bb.extend(p), new maplibregl.LngLatBounds(pts[0], pts[0]));
   M.following = false;
   const h = M.map.getContainer().clientHeight;
-  const bottom = Math.min(400, Math.round(h * 0.45));
+  const bottom = Math.min(440, Math.round(h * 0.5));
   M.map.fitBounds(b, { padding: { top: 170, bottom, left: 50, right: 50 }, maxZoom: 17, duration: 500 });
 }
 
@@ -1048,10 +1238,12 @@ $app.addEventListener('touchend', e => {
 /* ================= Запуск ================= */
 
 async function boot() {
-  const [r, p] = await Promise.all([
+  const [r, p, st] = await Promise.all([
     fetch('data/route.json').then(x => x.json()),
     fetch('data/paths.json').then(x => x.json()),
+    fetch('data/streets.json').then(x => x.json()).catch(() => null),
   ]);
+  if (st && st.nodes && st.edges) streets = new StreetGraph(st.nodes, st.edges);
   route = r;
   if (!route.presets || !route.presets.length) {
     route.presets = [{ emoji: '🐫', title: 'Весь маршрут', subtitle: '', stops: route.default_order }];
