@@ -6,7 +6,7 @@
 'use strict';
 
 /** Номер веб-версии: виден внизу главного экрана, чтобы понять, обновилось ли приложение. */
-const APP_VERSION = '0.8';
+const APP_VERSION = '0.9';
 const STORE_KEY = 'karavan.journey2';
 const HINT_KEY = 'karavan.installHint';
 const MAP_STYLE = 'https://tiles.openfreemap.org/styles/liberty';
@@ -1526,7 +1526,7 @@ function browserLink() {
   return `intent://${APP_URL.replace('https://', '')}#Intent;scheme=https;end`;
 }
 
-const mustOpenInBrowser = () => inAppBrowser || (isIOS && standalone);
+const mustOpenInBrowser = () => inAppBrowser || (isIOS && standalone && GEO.status === 'denied');
 
 function installHint() {
   // Открыто в Telegram, ВК или с экрана «Домой» iPhone — там геопозиция не работает: ведём в браузер.
@@ -1540,10 +1540,8 @@ function installHint() {
   try { hidden = localStorage.getItem(HINT_KEY) === 'hidden'; } catch (_) { /* нет хранилища */ }
   if (standalone || hidden) return '';
   if (isIOS) {
-    // Иконка откроет прогулку в Safari — там работают и геопозиция, и альбом.
     return `<div class="hint"><button class="x" data-act="hideHint" aria-label="Скрыть">✕</button>
-      <b>Иконка Троши на экране «Домой»</b><br>Нажмите внизу Safari «Поделиться» <b>⎋</b> → «На экран "Домой"».
-      Если там есть переключатель «Открыть как веб-приложение» — <b>выключите</b> его, тогда прогулка будет знать, где вы.</div>`;
+      <b>Иконка Троши на экране «Домой»</b><br>Нажмите внизу Safari «Поделиться» <b>⎋</b> → «На экран "Домой"».</div>`;
   }
   if (installEvent) {
     return `<div class="hint"><button class="x" data-act="hideHint" aria-label="Скрыть">✕</button>
