@@ -133,6 +133,8 @@ cd malenkiy-karavan
 
 ## Как поменять тексты и маршрут
 
+> Оригиналы текстов и маршрута теперь в веб-версии ([qwest65/malenkiy-karavan-web](https://github.com/qwest65/malenkiy-karavan-web), раздел «Как поменять тексты, маршрут или озвучку»). Правьте там, а сюда переносите копию — так приложение и сайт не разойдутся. Ниже — как устроено внутри приложения.
+
 - **Тексты, вопросы, игры и подсказки** — в [`app/src/main/assets/kids/route.json`](app/src/main/assets/kids/route.json). После правки заново озвучьте их (см. «Озвучка» ниже).
 - **Точки маршрута** ссылаются на места из [`core/src/main/assets/catalog.json`](core/src/main/assets/catalog.json) по `place_id`. После изменения точек или каталога workflow [`kids-paths.yml`](.github/workflows/kids-paths.yml) сам соберёт карту улиц, перестроит пешеходные линии и картинку-проверку [`route-preview.png`](app/tools/preview/route-preview.png), закоммитит их и пересоберёт APK. Вручную: `pip install matplotlib && python3 app/tools/build_streets.py`.
 - **Картинки** — `app/src/main/assets/kids/stickers/*.webp`. Наклейки новых мест (`blanket`, `whistle`, `book`, `key`) пока временные — их можно заменить картинками в общем стиле.
@@ -165,19 +167,24 @@ Workflow [`.github/workflows/android.yml`](.github/workflows/android.yml) зап
 
 ## Веб-версия и сайт проекта
 
-**Веб-версия** — отдельный проект [qwest65/malenkiy-karavan-web](https://github.com/qwest65/malenkiy-karavan-web)
-(https://qwest65.github.io/malenkiy-karavan-web/). В нём лежат собственные копии текстов, озвучки
-и наклеек, и во время работы он к этому репозиторию не обращается.
+**Главный дом проекта — веб-версия** [qwest65/malenkiy-karavan-web](https://github.com/qwest65/malenkiy-karavan-web)
+(https://qwest65.github.io/malenkiy-karavan-web/). Там хранятся **оригиналы** текстов, вопросов,
+маршрута и озвучки, там же пересчитываются пешеходные линии и переозвучивается рассказчик,
+и там же сайт проекта для родителей и педагогов — https://qwest65.github.io/malenkiy-karavan-web/site/.
+Веб-версия ни от чего в этом репозитории не зависит.
 
-**Оригинал текстов, вопросов, маршрута и озвучки — здесь**, в `app/src/main/assets/kids/`. После правок
-их переносят в веб-версию скриптом `tools/build_web.py` из веб-репозитория — так прогулка
-в приложении и на сайте остаётся одинаковой.
+Это приложение — второе направление: правки переносят сюда из веб-версии, в `app/src/main/assets/kids/`
+(`route.json`, `paths.json`, `streets.json`, `stickers/`; озвучку — из MP3 в OGG). Координаты точек
+и справки для взрослых приложение по-прежнему берёт из `core/src/main/assets/catalog.json`.
+Как это сделать — в README веб-версии, раздел «Главный дом проекта».
 
-**Папка `docs/`** — это сайт проекта https://qwest65.github.io/malenkiy-karavan/ (GitHub Pages):
-страница о прогулке для родителей и педагогов. В `docs/app/` — только два файла-перенаправления
-со старого адреса веб-версии (`/malenkiy-karavan/app/`): старые ссылки и QR-коды ведут на новый адрес,
-а у тех, кто открывал старый, стирается прежняя сохранённая копия. Их не стоит удалять,
-пока старая ссылка может где-то встретиться.
+**Папка `docs/`** — только старые адреса на GitHub Pages:
+- `docs/index.html` — перенаправление с прежнего сайта проекта `qwest65.github.io/malenkiy-karavan/` на новый;
+- `docs/app/` — перенаправление с прежнего адреса веб-версии (`/malenkiy-karavan/app/`); заодно у тех,
+  кто открывал старый адрес, стирается прежняя сохранённая копия;
+- `docs/privacy.html` — **политика конфиденциальности, на неё ссылается карточка RuStore** — не удалять
+  и не переносить, пока ссылка в RuStore не заменена;
+- `docs/images/` — картинки для этого README.
 
 ## Дорожная карта
 
