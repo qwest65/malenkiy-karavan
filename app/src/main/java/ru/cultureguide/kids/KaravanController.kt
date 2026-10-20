@@ -75,7 +75,6 @@ class KaravanController(
     /** Имя и фамилия юного караванщика для грамоты; хранится только в телефоне. */
     var childName by mutableStateOf(prefs.getString(KEY_CHILD_NAME, null))
         private set
-        private set
     /** Точка, открытая на экране «Нашли!». */
     var openedStop by mutableStateOf(0)
         private set

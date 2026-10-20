@@ -28,7 +28,7 @@ class PhotoStore(context: Context) {
     private val main = Handler(Looper.getMainLooper())
 
     val collageFile = File(dir, "collage.jpg")
-    val diplomaFile = File(dir, "diploma.jpg"
+    val diplomaFile = File(dir, "diploma.jpg")
 
     /** Растёт при каждом изменении фото или коллажа — экраны перечитывают картинки. */
     var version by mutableIntStateOf(0)
