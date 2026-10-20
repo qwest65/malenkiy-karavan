@@ -28,6 +28,7 @@ class PhotoStore(context: Context) {
     private val main = Handler(Looper.getMainLooper())
 
     val collageFile = File(dir, "collage.jpg")
+    val diplomaFile = File(dir, "diploma.jpg")
 
     /** Растёт при каждом изменении фото или коллажа — экраны перечитывают картинки. */
     var version by mutableIntStateOf(0)
@@ -64,19 +65,30 @@ class PhotoStore(context: Context) {
     fun loadCollage(maxSide: Int): Bitmap? = loadFile(collageFile, maxSide)
 
     /** Собирает коллаж в фоне и сохраняет его в [collageFile]. */
-    fun saveCollage(render: () -> Bitmap?) {
+    fun saveCollage(render: () -> Bitmap?) = saveImage(collageFile, render)
+
+    fun deleteCollage() {
+        if (collageFile.delete()) version++
+    }
+
+    fun loadDiploma(maxSide: Int): Bitmap? = loadFile(diplomaFile, maxSide)
+
+    /** Рисует грамоту в фоне и сохраняет её в [diplomaFile]. */
+    fun saveDiploma(render: () -> Bitmap?) = saveImage(diplomaFile, render)
+
+    fun deleteDiploma() {
+        if (diplomaFile.delete()) version++
+    }
+
+    private fun saveImage(file: File, render: () -> Bitmap?) {
         executor.execute {
             val bitmap = render()
             val ok = bitmap != null && runCatching {
-                collageFile.outputStream().use { bitmap.compress(Bitmap.CompressFormat.JPEG, JPEG_QUALITY, it) }
+                file.outputStream().use { bitmap.compress(Bitmap.CompressFormat.JPEG, JPEG_QUALITY, it) }
             }.isSuccess
             bitmap?.recycle()
             if (ok) main.post { version++ }
         }
-    }
-
-    fun deleteCollage() {
-        if (collageFile.delete()) version++
     }
 
     fun clear() {

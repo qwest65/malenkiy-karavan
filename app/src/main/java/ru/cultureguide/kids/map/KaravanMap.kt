@@ -91,6 +91,10 @@ class KaravanMap(
     /** Карта следует за нами и поворачивается по направлению движения. */
     var following by mutableStateOf(true)
         private set
+
+    /** Куда повёрнута карта, градусы: кнопка «на север» видна, пока её повернули вручную. */
+    var bearing by mutableStateOf(0.0)
+        private set
     private var fitted = false
     private var offline = false
 
@@ -109,6 +113,7 @@ class KaravanMap(
                     main.removeCallbacks(resumeFollow)
                 }
             }
+            m.addOnCameraMoveListener { bearing = m.cameraPosition.bearing }
             // Карту отпустили — через несколько секунд она сама вернётся к нам.
             m.addOnCameraIdleListener {
                 if (!following) {
@@ -116,6 +121,8 @@ class KaravanMap(
                     main.postDelayed(resumeFollow, RESUME_FOLLOW_MS)
                 }
             }
+            // Дальше 11 не отдаляем: там уже весь город, а для работы без интернета это не сохранено.
+            m.setMinZoomPreference(OfflineArea.MIN_ZOOM)
             m.uiSettings.apply {
                 isRotateGesturesEnabled = true
                 isTiltGesturesEnabled = false
@@ -157,6 +164,20 @@ class KaravanMap(
         main.removeCallbacks(resumeFollow)
         following = true
         followCamera(animate = true, force = true)
+    }
+
+    /** Скачивает район маршрута для работы без интернета (см. [OfflineArea]). */
+    fun saveOffline() {
+        OfflineArea.ensure(context, STYLE_URL, places.map { LatLng(it.lat, it.lon) })
+    }
+
+    /** Кнопка «▲С»: развернуть повёрнутую вручную карту на север; к нам она вернётся сама. */
+    fun north() {
+        val m = map ?: return
+        following = false
+        main.removeCallbacks(resumeFollow)
+        m.animateCamera(CameraUpdateFactory.bearingTo(0.0), NORTH_MS)
+        main.postDelayed(resumeFollow, RESUME_FOLLOW_MS)
     }
 
     /** Кнопка ⤢: весь маршрут целиком, карта перестаёт следовать за нами. */
@@ -453,7 +474,8 @@ class KaravanMap(
         const val FOLLOW_ZOOM = 17.5
         const val FOLLOW_TILT = 40.0
         const val CAMERA_INTERVAL_MS = 300L
-        const val RESUME_FOLLOW_MS = 5_000L
+        const val RESUME_FOLLOW_MS = 8_000L
+        const val NORTH_MS = 400
         const val PROP_ICON = "icon"
         const val PROP_SIZE = "size"
         const val PROP_STATE = "state"
