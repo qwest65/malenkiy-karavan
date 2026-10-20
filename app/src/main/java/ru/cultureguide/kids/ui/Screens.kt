@@ -58,6 +58,11 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CheckboxDefaults
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -123,7 +128,8 @@ class MapHooks(
 class PhotoHooks(
     val takePhoto: (Int) -> Unit,
     val pickPhoto: (Int) -> Unit,
-    val shareCollage: () -> Unit
+    val shareCollage: () -> Unit,
+    val shareDiploma: () -> Unit
 )
 
 @Composable
@@ -141,7 +147,7 @@ fun KaravanApp(controller: KaravanController, ensureLocation: () -> Unit, map: M
             Screen.Choose -> ChooseScreen(controller, ensureLocation)
             Screen.Walk -> WalkScreen(controller, map)
             Screen.Stop -> StopScreen(controller, photo)
-            Screen.Finale -> FinaleScreen(controller)
+            Screen.Finale -> FinaleScreen(controller, photo)
             Screen.Album -> AlbumScreen(controller, photo)
         }
     }
@@ -767,7 +773,7 @@ private fun PhotoPanel(c: KaravanController, index: Int, photo: PhotoHooks) {
 }
 
 @Composable
-private fun FinaleScreen(c: KaravanController) {
+private fun FinaleScreen(c: KaravanController, photo: PhotoHooks) {
     val result = c.result ?: WalkResult(complete = false, found = emptyList())
     val pulse = rememberInfiniteTransition(label = "badge")
     val scale by pulse.animateFloat(
@@ -811,6 +817,7 @@ private fun FinaleScreen(c: KaravanController) {
                 }
             }
         }
+        if (result.complete) DiplomaPanel(c, photo)
         BigButton("Мой альбом", onClick = c::openAlbum)
         SoftButton("На главную", c::goHome)
     }
@@ -861,6 +868,7 @@ private fun AlbumScreen(c: KaravanController, photo: PhotoHooks) {
                 )
             }
         }
+        if (journey.badge) DiplomaPanel(c, photo)
         c.route.stops.indices.chunked(2).forEach { pair ->
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 pair.forEach { i ->
@@ -931,6 +939,65 @@ private fun rememberCollage(c: KaravanController): ImageBitmap? {
     val version = c.photos.version
     val image by produceState<ImageBitmap?>(null, version) {
         value = withContext(Dispatchers.IO) { c.photos.loadCollage(COLLAGE_PX)?.asImageBitmap() }
+    }
+    return image
+}
+
+/**
+ * Грамота «Юный караванщик»: пока имени нет (или его исправляют) — поле «Имя и фамилия»,
+ * потом сама грамота с кнопкой «Поделиться» и ссылкой «Исправить имя».
+ */
+@Composable
+private fun DiplomaPanel(c: KaravanController, photo: PhotoHooks) {
+    val name = c.childName
+    var editing by remember { mutableStateOf(false) }
+    if (name == null || editing) {
+        var value by remember(name) { mutableStateOf(name.orEmpty()) }
+        Panel(color = Karavan.Gold.copy(alpha = 0.3f)) {
+            Text("🏅 Грамота юного караванщика", fontSize = 20.sp, fontWeight = FontWeight.Bold, color = Karavan.Ink)
+            Text(
+                "Как зовут юного караванщика? Имя попадёт в грамоту и останется только в этом телефоне.",
+                fontSize = 16.sp,
+                color = Karavan.Ink
+            )
+            OutlinedTextField(
+                value = value,
+                onValueChange = { value = it.take(40) },
+                placeholder = { Text("Имя и фамилия") },
+                singleLine = true,
+                textStyle = TextStyle(fontSize = 20.sp),
+                keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Words, imeAction = ImeAction.Done),
+                modifier = Modifier.fillMaxWidth()
+            )
+            BigButton(if (name == null) "Получить грамоту" else "Исправить грамоту", enabled = value.isNotBlank()) {
+                c.setChildName(value)
+                editing = false
+            }
+        }
+    } else {
+        val diploma = rememberDiploma(c)
+        Panel {
+            Text("🏅 Грамота юного караванщика", fontSize = 20.sp, fontWeight = FontWeight.Bold, color = Karavan.Ink)
+            if (diploma != null) {
+                Image(
+                    bitmap = diploma,
+                    contentDescription = "Грамота: $name — Юный караванщик",
+                    modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp))
+                )
+            } else {
+                Text("Готовим грамоту…", fontSize = 16.sp, color = Karavan.Muted)
+            }
+            OutlinedButton(onClick = photo.shareDiploma) { Text("Поделиться или сохранить") }
+            TextButton(onClick = { editing = true }) { Text("Исправить имя", color = Karavan.Muted) }
+        }
+    }
+}
+
+@Composable
+private fun rememberDiploma(c: KaravanController): ImageBitmap? {
+    val version = c.photos.version
+    val image by produceState<ImageBitmap?>(null, version, c.childName) {
+        value = withContext(Dispatchers.IO) { c.photos.loadDiploma(COLLAGE_PX)?.asImageBitmap() }
     }
     return image
 }

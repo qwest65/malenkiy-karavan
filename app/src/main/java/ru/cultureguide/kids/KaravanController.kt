@@ -28,6 +28,7 @@ import ru.cultureguide.kids.content.instruction as nextInstruction
 import ru.cultureguide.kids.map.ApproachRouter
 import ru.cultureguide.kids.photo.Collage
 import ru.cultureguide.kids.photo.CollageCard
+import ru.cultureguide.kids.photo.Diploma
 import ru.cultureguide.kids.photo.PhotoStore
 import ru.cultureguide.model.Place
 import ru.cultureguide.navigation.GeoPoint
@@ -70,6 +71,10 @@ class KaravanController(
     var screen by mutableStateOf(Screen.Home)
         private set
     var journey by mutableStateOf(loadJourney())
+
+    /** Имя и фамилия юного караванщика для грамоты; хранится только в телефоне. */
+    var childName by mutableStateOf(prefs.getString(KEY_CHILD_NAME, null))
+        private set
         private set
     /** Точка, открытая на экране «Нашли!». */
     var openedStop by mutableStateOf(0)
@@ -431,6 +436,33 @@ class KaravanController(
         }
     }
 
+    /** Вписать (или исправить) имя на грамоте — грамота перерисуется. */
+    fun setChildName(value: String) {
+        val name = value.trim().replace(Regex("\\s+"), " ").take(MAX_NAME)
+        if (name.isEmpty()) return
+        val edit = prefs.edit().putString(KEY_CHILD_NAME, name)
+        if (!prefs.contains(KEY_DIPLOMA_DATE)) edit.putLong(KEY_DIPLOMA_DATE, System.currentTimeMillis())
+        edit.apply()
+        childName = name
+        refreshDiploma()
+    }
+
+    /** Грамота — за прогулку, пройденную до конца, когда вписано имя. */
+    private fun refreshDiploma() {
+        val name = childName
+        if (!journey.badge || name == null) {
+            photos.deleteDiploma()
+            return
+        }
+        val found = route.defaultOrder.filter { journey.isFound(it) }
+        val stickers = found.map { route.stops[it].sticker }
+        val title = route.title
+        val date = java.util.Date(prefs.getLong(KEY_DIPLOMA_DATE, System.currentTimeMillis()))
+        photos.saveDiploma {
+            Diploma.render(name, title, date, sticker(route.badge), sticker("trosha"), stickers.mapNotNull(::sticker))
+        }
+    }
+
     private fun sticker(name: String) =
         runCatching { appContext.assets.open("kids/stickers/$name.webp").use { BitmapFactory.decodeStream(it) } }.getOrNull()
 
@@ -457,6 +489,8 @@ class KaravanController(
         stopAudio()
         result = WalkResult(complete, journey.plan.filter { it in journey.walkFound })
         journey = journey.finish().also(::save)
+        // Имя уже вписывали после прошлой прогулки — грамота с новыми находками готова сразу.
+        if (complete) refreshDiploma()
         distanceToTarget = null
         approachLine = null
         approachStraight = false
@@ -490,6 +524,8 @@ class KaravanController(
     fun resetAlbum() {
         stopAudio()
         photos.clear()
+        prefs.edit().remove(KEY_CHILD_NAME).remove(KEY_DIPLOMA_DATE).apply()
+        childName = null
         journey = journey.reset().also(::save)
         screen = Screen.Home
     }
@@ -556,5 +592,8 @@ class KaravanController(
         const val KEY_FOUND = "found"
         const val KEY_WALK_FOUND = "walk_found"
         const val KEY_BADGE = "badge"
+        const val KEY_CHILD_NAME = "child_name"
+        const val KEY_DIPLOMA_DATE = "diploma_date"
+        const val MAX_NAME = 40
     }
 }

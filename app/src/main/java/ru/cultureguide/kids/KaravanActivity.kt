@@ -107,7 +107,12 @@ class KaravanActivity : ComponentActivity() {
             bearing = { karavanMap.bearing },
             onNorth = karavanMap::north
         )
-        val photoHooks = PhotoHooks(takePhoto = ::takePhoto, pickPhoto = ::pickPhoto, shareCollage = ::shareCollage)
+        val photoHooks = PhotoHooks(
+            takePhoto = ::takePhoto,
+            pickPhoto = ::pickPhoto,
+            shareCollage = { shareImage(photos.collageFile, "Коллаж «Маленький караван»") },
+            shareDiploma = { shareImage(photos.diplomaFile, "Грамота «Юный караванщик»") }
+        )
         setContent {
             KaravanTheme {
                 KaravanApp(controller, ensureLocation = ::ensureTracking, map = hooks, photo = photoHooks)
@@ -138,8 +143,8 @@ class KaravanActivity : ComponentActivity() {
         }
     }
 
-    private fun shareCollage() {
-        val file = photos.collageFile
+    /** Отправить картинку из альбома (коллаж, грамоту): мессенджеры, «Сохранить», печать. */
+    private fun shareImage(file: File, title: String) {
         if (!file.exists()) return
         val uri = FileProvider.getUriForFile(this, "$packageName.files", file)
         val send = Intent(Intent.ACTION_SEND)
@@ -147,9 +152,9 @@ class KaravanActivity : ComponentActivity() {
             .putExtra(Intent.EXTRA_STREAM, uri)
             .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
         try {
-            startActivity(Intent.createChooser(send, "Коллаж «Маленький караван»"))
+            startActivity(Intent.createChooser(send, title))
         } catch (_: ActivityNotFoundException) {
-            toast("Нет приложения, чтобы отправить коллаж")
+            toast("Нет приложения, чтобы отправить картинку")
         }
     }
 
