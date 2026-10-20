@@ -970,7 +970,7 @@ private fun DiplomaPanel(c: KaravanController, photo: PhotoHooks) {
                 modifier = Modifier.fillMaxWidth()
             )
             BigButton(if (name == null) "Получить грамоту" else "Исправить грамоту", enabled = value.isNotBlank()) {
-                c.setChildName(value)
+                c.saveChildName(value)
                 editing = false
             }
         }

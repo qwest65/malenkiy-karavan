@@ -436,7 +436,7 @@ class KaravanController(
     }
 
     /** Вписать (или исправить) имя на грамоте — грамота перерисуется. */
-    fun setChildName(value: String) {
+    fun saveChildName(value: String) {
         val name = value.trim().replace(Regex("\\s+"), " ").take(MAX_NAME)
         if (name.isEmpty()) return
         val edit = prefs.edit().putString(KEY_CHILD_NAME, name)
