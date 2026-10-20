@@ -21,8 +21,10 @@ import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalDensity
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import kotlin.math.abs
 import ru.cultureguide.kids.photo.PhotoStore
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.Orientation
@@ -69,6 +71,9 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.animation.core.Animatable
+import androidx.compose.ui.input.pointer.PointerEventPass
+import androidx.compose.ui.input.pointer.PointerEventType
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.layout.boundsInRoot
@@ -104,7 +109,10 @@ class MapHooks(
     val onFitAll: () -> Unit,
     /** Следует ли карта за нами, как навигатор; читается как состояние Compose. */
     val isFollowing: () -> Boolean,
-    val onFollow: () -> Unit
+    val onFollow: () -> Unit,
+    /** Куда повёрнута карта, градусы; читается как состояние Compose. */
+    val bearing: () -> Double,
+    val onNorth: () -> Unit
 )
 
 /**
@@ -374,6 +382,15 @@ private fun WalkScreen(c: KaravanController, map: MapHooks) {
     val distance = c.distanceToTarget
     var confirmFinish by remember { mutableStateOf(false) }
     var panelExpanded by rememberSaveable { mutableStateOf(true) }
+    // Панель сама сворачивается, если её не трогать: карте нужно больше места.
+    // Любое касание панели начинает отсчёт заново.
+    var panelTouch by remember { mutableStateOf(0) }
+    LaunchedEffect(panelExpanded, panelTouch) {
+        if (panelExpanded) {
+            delay(PANEL_HIDE_MS)
+            panelExpanded = false
+        }
+    }
 
     // Во время прогулки экран не гаснет: иначе остановится геолокация и Троша не узнает, что мы пришли.
     val view = LocalView.current
@@ -398,6 +415,8 @@ private fun WalkScreen(c: KaravanController, map: MapHooks) {
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 PillButton("⏸ Пауза", c::pause)
                 Spacer(Modifier.weight(1f))
+                val bearing = map.bearing()
+                if (!map.isFollowing() && abs(bearing) >= 1.0) NorthButton(bearing, map.onNorth)
                 if (!map.isFollowing()) RoundButton("🧭", map.onFollow)
                 RoundButton("⤢", map.onFitAll)
             }
@@ -406,6 +425,7 @@ private fun WalkScreen(c: KaravanController, map: MapHooks) {
         WalkPanel(
             expanded = panelExpanded,
             onExpandedChange = { panelExpanded = it },
+            onTouch = { panelTouch++ },
             modifier = Modifier.align(Alignment.BottomCenter),
             summary = {
                 Text(
@@ -530,6 +550,7 @@ private const val NOW_METERS = 8.0
 private fun WalkPanel(
     expanded: Boolean,
     onExpandedChange: (Boolean) -> Unit,
+    onTouch: () -> Unit,
     modifier: Modifier = Modifier,
     summary: @Composable RowScope.() -> Unit,
     content: @Composable ColumnScope.() -> Unit
@@ -539,6 +560,13 @@ private fun WalkPanel(
         modifier
             .fillMaxWidth()
             .background(Karavan.Card, RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp))
+            .pointerInput(Unit) {
+                awaitPointerEventScope {
+                    while (true) {
+                        if (awaitPointerEvent(PointerEventPass.Initial).type == PointerEventType.Press) onTouch()
+                    }
+                }
+            }
             .draggable(
                 orientation = Orientation.Vertical,
                 state = rememberDraggableState { delta -> drag += delta },
@@ -571,6 +599,7 @@ private fun WalkPanel(
 }
 
 private const val SWIPE_PX = 40f
+private const val PANEL_HIDE_MS = 5_000L
 
 @Composable
 private fun FinishDialog(onConfirm: () -> Unit, onDismiss: () -> Unit) {
@@ -1067,6 +1096,23 @@ private fun RoundButton(label: String, onClick: () -> Unit) {
         colors = ButtonDefaults.buttonColors(containerColor = Karavan.Card, contentColor = Karavan.Ink)
     ) {
         Text(label, fontSize = 24.sp)
+    }
+}
+
+/** Кнопка «▲С»: красная стрелка показывает, где север на повёрнутой карте. */
+@Composable
+private fun NorthButton(bearing: Double, onClick: () -> Unit) {
+    Button(
+        onClick = onClick,
+        modifier = Modifier.size(56.dp),
+        shape = CircleShape,
+        contentPadding = androidx.compose.foundation.layout.PaddingValues(0.dp),
+        colors = ButtonDefaults.buttonColors(containerColor = Karavan.Card, contentColor = Karavan.Ink)
+    ) {
+        Column(Modifier.rotate(-bearing.toFloat()), horizontalAlignment = Alignment.CenterHorizontally) {
+            Text("▲", fontSize = 16.sp, color = Karavan.Red, lineHeight = 16.sp)
+            Text("С", fontSize = 12.sp, fontWeight = FontWeight.Bold, lineHeight = 12.sp)
+        }
     }
 }
 

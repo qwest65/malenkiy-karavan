@@ -102,7 +102,9 @@ class KaravanActivity : ComponentActivity() {
             onUpdate = karavanMap::update,
             onFitAll = karavanMap::showAll,
             isFollowing = { karavanMap.following },
-            onFollow = karavanMap::follow
+            onFollow = karavanMap::follow,
+            bearing = { karavanMap.bearing },
+            onNorth = karavanMap::north
         )
         val photoHooks = PhotoHooks(takePhoto = ::takePhoto, pickPhoto = ::pickPhoto, shareCollage = ::shareCollage)
         setContent {
