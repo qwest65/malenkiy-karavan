@@ -89,6 +89,7 @@ class KaravanActivity : ComponentActivity() {
         photos = PhotoStore(this)
         controller = KaravanController(this, route, places, paths, StreetsLoader.load(this), ClipPlayer(this), ApproachRouter(), photos)
         karavanMap = KaravanMap(this, route.stops, places, paths)
+        karavanMap.saveOffline()
         compass = HeadingSensor(this, controller::onCompass)
         controller.onHeading = karavanMap::setHeading
         tracker = LocationTracker(this) { location ->

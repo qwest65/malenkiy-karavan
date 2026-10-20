@@ -121,6 +121,8 @@ class KaravanMap(
                     main.postDelayed(resumeFollow, RESUME_FOLLOW_MS)
                 }
             }
+            // Дальше 11 не отдаляем: там уже весь город, а для работы без интернета это не сохранено.
+            m.setMinZoomPreference(OfflineArea.MIN_ZOOM)
             m.uiSettings.apply {
                 isRotateGesturesEnabled = true
                 isTiltGesturesEnabled = false
@@ -162,6 +164,11 @@ class KaravanMap(
         main.removeCallbacks(resumeFollow)
         following = true
         followCamera(animate = true, force = true)
+    }
+
+    /** Скачивает район маршрута для работы без интернета (см. [OfflineArea]). */
+    fun saveOffline() {
+        OfflineArea.ensure(context, STYLE_URL, places.map { LatLng(it.lat, it.lon) })
     }
 
     /** Кнопка «▲С»: развернуть повёрнутую вручную карту на север; к нам она вернётся сама. */
