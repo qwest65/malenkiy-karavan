@@ -121,8 +121,8 @@ class KaravanMap(
                     main.postDelayed(resumeFollow, RESUME_FOLLOW_MS)
                 }
             }
-            // Дальше 11 не отдаляем: там уже весь город, а для работы без интернета это не сохранено.
-            m.setMinZoomPreference(OfflineArea.MIN_ZOOM)
+            // Дальше 11 не отдаляем: там уже весь город, а кусочков карты дальше нет.
+            m.setMinZoomPreference(MIN_ZOOM)
             m.uiSettings.apply {
                 isRotateGesturesEnabled = true
                 isTiltGesturesEnabled = false
@@ -166,10 +166,8 @@ class KaravanMap(
         followCamera(animate = true, force = true)
     }
 
-    /** Скачивает район маршрута для работы без интернета (см. [OfflineArea]). */
-    fun saveOffline() {
-        OfflineArea.ensure(context, STYLE_URL, places.map { LatLng(it.lat, it.lon) })
-    }
+    /** Убирает район, который скачивала версия 0.7.0: карта теперь внутри приложения. */
+    fun forgetOldOffline() = OfflineArea.forget(context)
 
     /** Кнопка «▲С»: развернуть повёрнутую вручную карту на север; к нам она вернётся сама. */
     fun north() {
@@ -449,7 +447,13 @@ class KaravanMap(
     private fun stickerImage(name: String) = "sticker-$name"
 
     private companion object {
-        const val STYLE_URL = "https://tiles.openfreemap.org/styles/liberty"
+        /**
+         * Карта Троицка внутри приложения (из веб-версии, app/tools/import_web_map.py):
+         * чужой сервер карт у части провайдеров заблокирован, а так карта видна всегда,
+         * даже при первом запуске без интернета.
+         */
+        const val STYLE_URL = "asset://map/style.json"
+        const val MIN_ZOOM = 11.0
         const val OFFLINE_STYLE =
             """{"version":8,"sources":{},"layers":[{"id":"bg","type":"background","paint":{"background-color":"#F3E6CC"}}]}"""
 
