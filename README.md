@@ -14,7 +14,7 @@
 ![Kotlin](https://img.shields.io/badge/Kotlin-2.1-7F52FF?logo=kotlin&logoColor=white)
 ![MapLibre](https://img.shields.io/badge/MapLibre-OpenStreetMap-396CB2)
 
-### [⬇️ Скачать APK](https://github.com/qwest65/malenkiy-karavan/releases/latest/download/MalenkiyKaravan.apk) · [🌐 Пройти в браузере (iPhone)](https://qwest65.github.io/malenkiy-karavan-web/)
+### [📲 RuStore](https://www.rustore.ru/catalog/app/ru.malenkiykaravan) · [⬇️ Скачать APK](https://github.com/qwest65/malenkiy-karavan/releases/latest/download/MalenkiyKaravan.apk) · [🌐 Пройти в браузере (iPhone)](https://qwest65.github.io/malenkiy-karavan-web/)
 
 Веб-версия для iPhone и без установки — отдельный проект [qwest65/malenkiy-karavan-web](https://github.com/qwest65/malenkiy-karavan-web).
 
@@ -66,6 +66,10 @@
 
 ## Установка на телефон
 
+Проще всего — из [**RuStore**](https://www.rustore.ru/catalog/app/ru.malenkiykaravan): там приложение обновляется само.
+
+Или напрямую с GitHub:
+
 1. Скачайте [**MalenkiyKaravan.apk**](https://github.com/qwest65/malenkiy-karavan/releases/latest/download/MalenkiyKaravan.apk) на телефон. Ссылка постоянная и всегда ведёт на последнюю версию.
 2. Откройте файл. Если Android спросит, разрешите установку приложений из этого источника.
 3. Перед прогулкой разрешите доступ к геолокации — так Троша узнает, что вы дошли до точки.
@@ -85,9 +89,9 @@
 | Карта | [MapLibre Native](https://maplibre.org/) (`android-sdk-opengl`), подложка [OpenFreeMap](https://openfreemap.org/), данные © OpenStreetMap |
 | Пешеходные маршруты | своя карта улиц центра из OpenStreetMap без дворов (поиск пути прямо на телефоне); вдали от центра — [OSRM](https://project-osrm.org/), профиль foot |
 | Озвучка | заранее записанные Ogg Vorbis: рассказчик — Яндекс SpeechKit (голос Ермил), Троша — голос, созданный в [ElevenLabs](https://elevenlabs.io) |
-| Хранение | SQLite (каталог мест), SharedPreferences (прогресс и альбом), фото и коллаж — во внутренней памяти приложения |
+| Хранение | SQLite (каталог мест), SharedPreferences (прогресс, альбом, имя для грамоты), фото, коллаж и грамота — во внутренней памяти приложения, карта района прогулки — в офлайн-хранилище MapLibre |
 | Сборка | Gradle 8.9 (wrapper), Android Gradle Plugin 8.7, JDK 17 |
-| CI/CD | GitHub Actions → GitHub Releases |
+| CI/CD | GitHub Actions → GitHub Releases → RuStore (по кнопке) |
 
 Ключей и платных сервисов не нужно.
 
@@ -106,17 +110,19 @@ app/
 ├── src/main/assets/kids/
 │   ├── route.json               маршрут: тексты рассказчика и Троши, вопросы, игры, подсказки
 │   ├── paths.json               пешеходные линии между точками
+│   ├── streets.json             улицы центра без дворов для пути «от меня до точки»
 │   ├── audio/*.ogg              озвучка
 │   └── stickers/*.webp          Троша, вещи и значок
 ├── src/main/java/ru/cultureguide/kids/
 │   ├── KaravanActivity.kt       жизненный цикл, разрешения, карта
 │   ├── KaravanController.kt     экраны, прогулка, прибытие, озвучка
 │   ├── content/                 маршрут, прогресс (Journey), пешеходные линии (WalkPath), повороты (Navigation)
-│   ├── map/                     карта MapLibre, компас и путь «от меня до точки»
-│   ├── photo/                   фото с точек и коллаж
+│   ├── map/                     карта MapLibre, компас, путь «от меня до точки», карта без интернета (OfflineArea)
+│   ├── photo/                   фото с точек, коллаж и грамота
 │   └── ui/                      экраны Compose
 └── tools/
     ├── generate_audio.py        озвучка из route.json
+    ├── rustore_publish.py       загрузка APK в RuStore
     ├── build_streets.py         карта улиц без дворов, пешеходные линии и картинка-проверка
     └── preview/route-preview.png  все линии маршрута на карте для проверки
 ```
@@ -165,7 +171,9 @@ Workflow [`.github/workflows/android.yml`](.github/workflows/android.yml) зап
 
 Постоянная ссылка на последнюю версию: https://github.com/qwest65/malenkiy-karavan/releases/latest/download/MalenkiyKaravan.apk
 
-Чтобы выпустить новую версию, поднимите `versionName` и `versionCode` в [`app/build.gradle.kts`](app/build.gradle.kts) и влейте изменения в `main`.
+Чтобы выпустить новую версию, поднимите `versionName` и `versionCode` в [`app/build.gradle.kts`](app/build.gradle.kts), впишите новое в [`rustore/whats_new.txt`](rustore/whats_new.txt) и влейте изменения в `main`.
+
+**RuStore.** Workflow [`rustore.yml`](.github/workflows/rustore.yml) запускается вручную: Actions → RuStore → Run workflow. Режим `check` входит по ключу и показывает версии в RuStore, ничего не меняя; `publish` берёт APK из последнего релиза GitHub, текст «Что нового» из `rustore/whats_new.txt` и отправляет версию на модерацию — после проверки RuStore публикует её сам. Нужны секреты `RUSTORE_KEY_ID` и `RUSTORE_PRIVATE_KEY` (консоль RuStore → Компания → API RuStore).
 
 ## Веб-версия и сайт проекта
 
@@ -190,7 +198,7 @@ Workflow [`.github/workflows/android.yml`](.github/workflows/android.yml) зап
 
 ## Дорожная карта
 
-- [ ] Офлайн-карта Троицка внутри приложения
+- [x] Карта района прогулки без интернета (0.7.0)
 - [ ] Предупреждения о переходе дороги на реальных перекрёстках
 - [ ] Новые маршруты и города
 - [ ] Проверить игры на месте
