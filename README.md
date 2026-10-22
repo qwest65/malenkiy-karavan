@@ -14,9 +14,9 @@
 ![Kotlin](https://img.shields.io/badge/Kotlin-2.1-7F52FF?logo=kotlin&logoColor=white)
 ![MapLibre](https://img.shields.io/badge/MapLibre-OpenStreetMap-396CB2)
 
-### [📲 RuStore](https://www.rustore.ru/catalog/app/ru.malenkiykaravan) · [⬇️ Скачать APK](https://github.com/qwest65/malenkiy-karavan/releases/latest/download/MalenkiyKaravan.apk) · [🌐 Пройти в браузере (iPhone)](https://qwest65.github.io/malenkiy-karavan-web/)
+### [📲 RuStore](https://www.rustore.ru/catalog/app/ru.malenkiykaravan) · [⬇️ Скачать APK](https://github.com/qwest65/malenkiy-karavan/releases/latest/download/MalenkiyKaravan.apk) · [🌐 Пройти в браузере (iPhone)](https://маленький-караван.рф/progulka/)
 
-Веб-версия для iPhone и без установки — отдельный проект [qwest65/malenkiy-karavan-web](https://github.com/qwest65/malenkiy-karavan-web).
+Веб-версия для iPhone и без установки — [маленький-караван.рф](https://маленький-караван.рф/), отдельный проект [qwest65/malenkiy-karavan-web](https://github.com/qwest65/malenkiy-karavan-web).
 
 </div>
 
@@ -180,9 +180,9 @@ Workflow [`.github/workflows/android.yml`](.github/workflows/android.yml) зап
 ## Веб-версия и сайт проекта
 
 **Главный дом проекта — веб-версия** [qwest65/malenkiy-karavan-web](https://github.com/qwest65/malenkiy-karavan-web)
-(https://qwest65.github.io/malenkiy-karavan-web/). Там хранятся **оригиналы** текстов, вопросов,
+(сайт [маленький-караван.рф](https://маленький-караван.рф/), прогулка — `/progulka/`). Там хранятся **оригиналы** текстов, вопросов,
 маршрута и озвучки, там же пересчитываются пешеходные линии и переозвучивается рассказчик,
-и там же сайт проекта для родителей и педагогов — https://qwest65.github.io/malenkiy-karavan-web/site/.
+и там же сайт проекта для родителей и педагогов — главная страница маленький-караван.рф.
 Веб-версия ни от чего в этом репозитории не зависит.
 
 Это приложение — второе направление: правки переносят сюда из веб-версии, в `app/src/main/assets/kids/`
@@ -192,8 +192,8 @@ Workflow [`.github/workflows/android.yml`](.github/workflows/android.yml) зап
 Как это сделать — в README веб-версии, раздел «Главный дом проекта».
 
 **Папка `docs/`** — только старые адреса на GitHub Pages:
-- `docs/index.html` — перенаправление с прежнего сайта проекта `qwest65.github.io/malenkiy-karavan/` на новый;
-- `docs/app/` — перенаправление с прежнего адреса веб-версии (`/malenkiy-karavan/app/`); заодно у тех,
+- `docs/index.html` — перенаправление с прежнего сайта проекта `qwest65.github.io/malenkiy-karavan/` на маленький-караван.рф;
+- `docs/app/` — перенаправление с прежнего адреса веб-версии (`/malenkiy-karavan/app/`) на маленький-караван.рф/progulka/; заодно у тех,
   кто открывал старый адрес, стирается прежняя сохранённая копия;
 - `docs/privacy.html` — **политика конфиденциальности, на неё ссылается карточка RuStore** — не удалять
   и не переносить, пока ссылка в RuStore не заменена;
