@@ -57,7 +57,7 @@ class KaravanController(
     val places: List<Place>,
     /** Пешеходные линии между точками; без них расстояние считается по прямой. */
     val paths: RoutePaths,
-    /** Улицы центра без дворов: по ним путь «от меня до точки» строится прямо на телефоне. */
+    /** Улицы Троицка без дворов: по ним путь «от меня до точки» строится прямо на телефоне. */
     private val streets: StreetGraph,
     val player: ClipPlayer,
     private val router: ApproachRouter,
@@ -98,7 +98,7 @@ class KaravanController(
      */
     var approachLine by mutableStateOf<List<GeoPoint>?>(null)
         private set
-    /** Пути по улицам нет (далеко от центра и нет интернета) — к точке тянется прямая. */
+    /** Пути по улицам нет (далеко за городом и нет интернета) — к точке тянется прямая. */
     var approachStraight by mutableStateOf(false)
         private set
 
@@ -313,7 +313,7 @@ class KaravanController(
 
     /**
      * Свернули или пути ещё нет — строим заново от того места, где стоим: по встроенной
-     * карте улиц мгновенно и без интернета; если мы далеко от центра — у OSRM.
+     * карте улиц мгновенно и без интернета; если мы за городом — у OSRM.
      */
     private fun reroute(fix: LocationFix, target: Int, hasPath: Boolean) {
         val now = SystemClock.elapsedRealtime()

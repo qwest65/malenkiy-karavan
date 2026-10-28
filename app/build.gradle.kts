@@ -12,8 +12,9 @@ android {
         applicationId = "ru.malenkiykaravan"
         minSdk = 26
         targetSdk = 35
-        versionCode = 20
-        versionName = "0.7.1"
+        versionCode = 21
+        versionName = "0.7.2"
+        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
     signingConfigs {
         // Постоянный debug-ключ из репозитория: каждая сборка CI ставится поверх предыдущей без удаления
@@ -63,4 +64,9 @@ dependencies {
     implementation("androidx.compose.material3:material3:1.3.2")
 
     testImplementation("junit:junit:4.13.2")
+
+    // Только для снимков экранов в эмуляторе (.github/workflows/screenshots.yml), в APK не попадает.
+    androidTestImplementation("androidx.test:runner:1.6.2")
+    androidTestImplementation("androidx.test.ext:junit:1.2.1")
+    androidTestImplementation("androidx.test.uiautomator:uiautomator:2.3.0")
 }

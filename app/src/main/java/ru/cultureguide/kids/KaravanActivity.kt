@@ -7,6 +7,7 @@ import android.net.Uri
 import android.os.Bundle
 import android.widget.Toast
 import androidx.activity.ComponentActivity
+import androidx.activity.SystemBarStyle
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.PickVisualMediaRequest
@@ -66,7 +67,11 @@ class KaravanActivity : ComponentActivity() {
         // Пока открыта камера или галерея, Android может закрыть приложение — помним, для какой точки фото.
         photoStop = savedInstanceState?.getInt(STATE_PHOTO_STOP, -1) ?: -1
         cameraUri = savedInstanceState?.getString(STATE_CAMERA_URI)?.let(Uri::parse)
-        enableEdgeToEdge()
+        // Экраны светлые (небо, кремовые карточки) и в тёмной теме телефона — значки строки состояния тёмные.
+        enableEdgeToEdge(
+            statusBarStyle = SystemBarStyle.light(android.graphics.Color.TRANSPARENT, android.graphics.Color.TRANSPARENT),
+            navigationBarStyle = SystemBarStyle.light(android.graphics.Color.TRANSPARENT, android.graphics.Color.TRANSPARENT)
+        )
         MapLibre.getInstance(this)
 
         val route = KidsRouteLoader.load(this)
