@@ -51,7 +51,7 @@ object KidsPathsLoader {
 }
 
 /**
- * Улицы центра из `assets/kids/streets.json` (их строит `app/tools/build_streets.py`).
+ * Улицы Троицка из `assets/kids/streets.json` (их строит `app/tools/build_streets.py`).
  * Нет файла — [StreetGraph.EMPTY], и путь «от меня до точки» спрашивается у OSRM.
  */
 object StreetsLoader {

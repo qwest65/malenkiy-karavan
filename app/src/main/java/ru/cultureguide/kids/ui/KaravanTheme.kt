@@ -4,6 +4,7 @@ import android.graphics.BitmapFactory
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -39,18 +40,19 @@ object Karavan {
 fun KaravanTheme(content: @Composable () -> Unit) {
     MaterialTheme(
         colorScheme = lightColorScheme(
-            primary = Karavan.Red,
-            secondary = Karavan.Sky,
-            background = Karavan.Sand,
+            primary = Bright.OrangeDeep,
+            secondary = Bright.Blue,
+            background = Bright.Pale,
             surface = Karavan.Card,
             onSurface = Karavan.Ink
         ),
+        typography = RubikTypography,
         content = content
     )
 }
 
 @Composable
-private fun rememberSticker(name: String): ImageBitmap? {
+internal fun rememberSticker(name: String): ImageBitmap? {
     val context = LocalContext.current
     return remember(name) {
         runCatching {
@@ -71,7 +73,8 @@ fun Sticker(name: String, modifier: Modifier = Modifier, found: Boolean = true) 
             Image(
                 bitmap = bitmap,
                 contentDescription = null,
-                modifier = if (found) Modifier else Modifier.alpha(0.25f),
+                // Наклейка заполняет отведённое место, а не рисуется в размере картинки.
+                modifier = if (found) Modifier.fillMaxSize() else Modifier.fillMaxSize().alpha(0.25f),
                 colorFilter = if (found) null else ColorFilter.colorMatrix(ColorMatrix().apply { setToSaturation(0f) })
             )
         }
@@ -84,7 +87,19 @@ fun Sticker(name: String, modifier: Modifier = Modifier, found: Boolean = true) 
 /** Круглый знак вопроса на месте ещё не найденной вещи. */
 @Composable
 fun Mystery(modifier: Modifier = Modifier, fontSize: Int = 28) {
-    Box(modifier.background(Karavan.Red, CircleShape), contentAlignment = Alignment.Center) {
-        Text("?", color = Color.White, fontSize = fontSize.sp, fontWeight = FontWeight.Black)
+    Box(modifier.background(Karavan.Kraft, CircleShape), contentAlignment = Alignment.Center) {
+        Text("?", color = Karavan.Muted, fontSize = fontSize.sp, fontWeight = FontWeight.Black)
     }
+}
+
+/** Вещь на главной: найденная — яркая, ещё не найденная — бледная серая, без знака вопроса. */
+@Composable
+fun GhostSticker(name: String, ghost: Boolean, modifier: Modifier = Modifier) {
+    val bitmap = rememberSticker(name) ?: return
+    Image(
+        bitmap = bitmap,
+        contentDescription = null,
+        modifier = if (ghost) modifier.alpha(0.45f) else modifier,
+        colorFilter = if (ghost) ColorFilter.colorMatrix(ColorMatrix().apply { setToSaturation(0f) }) else null
+    )
 }

@@ -7,7 +7,7 @@ import kotlin.math.cos
 import kotlin.math.hypot
 
 /**
- * Улицы и тротуары центра Троицка без дворов (строит `app/tools/build_streets.py`
+ * Улицы и тротуары Троицка без дворов (строит `app/tools/build_streets.py`
  * в `assets/kids/streets.json`). По ним прямо на телефоне, без интернета, строится
  * путь «от меня до точки»: к первой точке прогулки и заново, если свернули.
  *
@@ -15,7 +15,7 @@ import kotlin.math.hypot
  * @param lon долготы узлов
  * @param edgeA первый узел каждого отрезка
  * @param edgeB второй узел каждого отрезка
- * @param edgeFactor во сколько раз путь по отрезку «дороже» его длины (дорожки скверов чуть дороже улиц)
+ * @param edgeFactor во сколько раз путь по отрезку «дороже» его длины (главные улицы ×1, переулки и грунтовки дороже)
  */
 class StreetGraph(
     private val lat: DoubleArray,
@@ -133,7 +133,7 @@ class StreetGraph(
     }
 
     companion object {
-        /** Дальше этого от улиц центра встроенная карта не помогает — путь спрашиваем у OSRM. */
+        /** Дальше этого от улиц города встроенная карта не помогает — путь спрашиваем у OSRM. */
         const val MAX_SNAP_METERS = 150.0
         private const val METERS_PER_DEGREE = 111_320.0
 
