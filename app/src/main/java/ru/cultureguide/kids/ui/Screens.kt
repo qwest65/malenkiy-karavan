@@ -210,7 +210,13 @@ private fun HomeScreen(c: KaravanController, ensureLocation: () -> Unit) {
             }
             WhiteButton("📒 Мой альбом", height = softHeight, onClick = c::openAlbum)
             if (journey.found.isNotEmpty() || journey.badge) {
-                TextButton(onClick = { confirmReset = true }) { Text("Очистить альбом", color = Bright.GrassText) }
+                // Мелкой ссылкой, а не кнопкой: главная должна помещаться на экран.
+                Text(
+                    "Очистить альбом",
+                    fontSize = 14.sp,
+                    color = Bright.GrassText,
+                    modifier = Modifier.clickable { confirmReset = true }.padding(4.dp)
+                )
             }
             HomeFoot()
         }
