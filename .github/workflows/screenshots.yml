@@ -12,6 +12,9 @@ on:
       - "app/src/androidTest/**"
       - ".github/workflows/screenshots.yml"
 
+permissions:
+  contents: write
+
 concurrency:
   group: screenshots-${{ github.ref }}
   cancel-in-progress: true
@@ -63,6 +66,20 @@ jobs:
             screens/
             app/build/reports/androidTests/
           if-no-files-found: warn
+
+      # Снимки ещё и в отдельную ветку «screens» (только они, без истории): их удобно смотреть
+      # прямо на GitHub и забирать через git, не скачивая артефакт.
+      - name: Publish shots to the screens branch
+        if: always()
+        run: |
+          [ -n "$(ls screens/*.png 2>/dev/null)" ] || exit 0
+          cd screens
+          git init -q -b screens
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add *.png
+          git commit -qm "Screenshots of ${GITHUB_SHA::7} (${GITHUB_REF_NAME})"
+          git push -qf "https://x-access-token:${{ github.token }}@github.com/${GITHUB_REPOSITORY}.git" screens
 
       - name: Fail if the tour failed
         if: env.TOUR_FAILED == '1'
