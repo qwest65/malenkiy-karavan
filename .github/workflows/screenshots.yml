@@ -51,9 +51,9 @@ jobs:
           script: |
             adb emu geo fix 61.5555 54.0840
             ./gradlew connectedDebugAndroidTest -Pandroid.injected.androidTest.leaveApksInstalledAfterRun=true --stacktrace || echo "TOUR_FAILED=1" >> "$GITHUB_ENV"
-            mkdir -p screens
-            adb pull /sdcard/Android/data/ru.malenkiykaravan/files/screens/. screens/ || true
-            ls -la screens
+            adb exec-out run-as ru.malenkiykaravan tar cf - -C files screens > screens.tar || true
+            tar xf screens.tar || true
+            ls -la screens || true
 
       - uses: actions/upload-artifact@v4
         if: always()

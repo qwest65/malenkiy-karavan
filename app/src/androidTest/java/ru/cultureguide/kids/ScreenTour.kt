@@ -24,7 +24,7 @@ class ScreenTour {
     private val instrumentation = InstrumentationRegistry.getInstrumentation()
     private val device = UiDevice.getInstance(instrumentation)
     private val context = instrumentation.targetContext
-    private val dir = File(context.getExternalFilesDir(null), "screens")
+    private val dir = File(context.filesDir, "screens")
 
     @Before
     fun start() {
