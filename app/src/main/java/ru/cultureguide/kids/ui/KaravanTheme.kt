@@ -4,6 +4,7 @@ import android.graphics.BitmapFactory
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -72,7 +73,8 @@ fun Sticker(name: String, modifier: Modifier = Modifier, found: Boolean = true) 
             Image(
                 bitmap = bitmap,
                 contentDescription = null,
-                modifier = if (found) Modifier else Modifier.alpha(0.25f),
+                // Наклейка заполняет отведённое место, а не рисуется в размере картинки.
+                modifier = if (found) Modifier.fillMaxSize() else Modifier.fillMaxSize().alpha(0.25f),
                 colorFilter = if (found) null else ColorFilter.colorMatrix(ColorMatrix().apply { setToSaturation(0f) })
             )
         }

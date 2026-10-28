@@ -3,6 +3,8 @@ package ru.cultureguide.kids.ui
 import android.graphics.BitmapFactory
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.offset
 import androidx.compose.material3.OutlinedTextFieldDefaults
@@ -1151,9 +1153,11 @@ private fun PlanTagsFor(c: KaravanController, plan: List<Int>, center: Boolean =
     )
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun StickerRow(c: KaravanController, stops: List<Int>) {
-    Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
+    // Все девять точек в одну строку не помещаются — переносятся на вторую.
+    FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
         stops.forEach { i ->
             if (c.journey.isFound(i)) {
                 Sticker(c.route.stops[i].sticker, Modifier.size(52.dp))

@@ -57,9 +57,10 @@ class ScreenTour {
         scrollTo(By.text("Крепость и собор"))
         val idem = device.findObjects(By.text("🐫 Идём!"))
         (idem.getOrNull(1) ?: idem.first()).click()
-        pause(3_000)
-        shot("05-walk")
+        // Карта подгружается не сразу.
         pause(4_000)
+        shot("05-walk")
+        pause(3_000)
         shot("05b-walk-collapsed")
         repeat(3) { n ->
             // Панель внизу сама сворачивается — тогда остаётся круглая кнопка 🔔.
