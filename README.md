@@ -114,14 +114,17 @@ app/
 │   ├── streets.json             улицы города без дворов для пути «от меня до точки»
 │   ├── map/                     карта Троицка: оформление, кусочки карты, значки и шрифты
 │   ├── audio/*.ogg              озвучка
-│   └── stickers/*.webp          Троша, вещи и значок
+│   ├── stickers/*.webp          Троша, вещи и значок
+│   └── home-scene.webp          картинка Троши у собора для главного экрана
 ├── src/main/java/ru/cultureguide/kids/
 │   ├── KaravanActivity.kt       жизненный цикл, разрешения, карта
 │   ├── KaravanController.kt     экраны, прогулка, прибытие, озвучка
 │   ├── content/                 маршрут, прогресс (Journey), пешеходные линии (WalkPath), повороты (Navigation)
 │   ├── map/                     карта MapLibre, компас, путь «от меня до точки», карта из assets/map
 │   ├── photo/                   фото с точек, коллаж и грамота
-│   └── ui/                      экраны Compose
+│   └── ui/                      экраны Compose; `Bright.kt` — яркое оформление (небо, кнопки, заголовки, шрифт Rubik)
+├── src/main/res/font/           шрифт Rubik (SIL Open Font License, текст лицензии — `assets/licenses/`)
+├── src/androidTest/             `ScreenTour` — проходит все экраны в эмуляторе для снимков
 └── tools/
     ├── generate_audio.py        озвучка из route.json
     ├── rustore_publish.py       загрузка APK в RuStore
@@ -175,6 +178,8 @@ Workflow [`.github/workflows/android.yml`](.github/workflows/android.yml) зап
 Постоянная ссылка на последнюю версию: https://github.com/qwest65/malenkiy-karavan/releases/latest/download/MalenkiyKaravan.apk
 
 Чтобы выпустить новую версию, поднимите `versionName` и `versionCode` в [`app/build.gradle.kts`](app/build.gradle.kts), впишите новое в [`rustore/whats_new.txt`](rustore/whats_new.txt) и влейте изменения в `main`.
+
+**Снимки экранов.** Workflow [`screenshots.yml`](.github/workflows/screenshots.yml) запускает эмулятор Android и проходит все экраны (`ScreenTour`): главная, выбор маршрута, свой маршрут, прогулка, точка, финал и альбом. Снимки лежат в ветке `screens` этого репозитория и в артефакте запуска; запускается вручную и когда меняются экраны.
 
 **RuStore.** Workflow [`rustore.yml`](.github/workflows/rustore.yml) запускается вручную: Actions → RuStore → Run workflow. Режим `check` входит по ключу и показывает версии в RuStore, ничего не меняя; `publish` берёт APK из последнего релиза GitHub, текст «Что нового» из `rustore/whats_new.txt` и отправляет версию на модерацию — после проверки RuStore публикует её сам. Нужны секреты `RUSTORE_KEY_ID` и `RUSTORE_PRIVATE_KEY` (консоль RuStore → Компания → API RuStore).
 
